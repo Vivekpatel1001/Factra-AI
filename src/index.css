@@ -1,0 +1,211 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+
+  /* Base surfaces - premium deep navy */
+  --color-background: #020617;
+  --color-foreground: #f1f5f9;
+  --color-card: #0f172a;
+  --color-card-foreground: #f1f5f9;
+  --color-card-elevated: #1e293b;
+  --color-muted: #1e293b;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #1e2b46;
+  --color-input: #243352;
+  --color-ring: #2563eb;
+
+  /* Brand - royal blue = trust */
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+  --color-primary-soft: rgba(37, 99, 235, 0.16);
+
+  /* Secondary neutral */
+  --color-secondary: #1e293b;
+  --color-secondary-foreground: #f1f5f9;
+
+  /* Verdict palette */
+  --color-true: #10b981;
+  --color-true-soft: rgba(16, 185, 129, 0.15);
+  --color-false: #ef4444;
+  --color-false-soft: rgba(239, 68, 68, 0.15);
+  --color-misleading: #f59e0b;
+  --color-misleading-soft: rgba(245, 158, 11, 0.15);
+  --color-unverified: #94a3b8;
+  --color-unverified-soft: rgba(148, 163, 184, 0.15);
+
+  --radius: 1.25rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    /* soft radial glow gradient on the deep navy backdrop */
+    background-image:
+      radial-gradient(60rem 40rem at 80% -10%, rgba(37, 99, 235, 0.18), transparent 60%),
+      radial-gradient(50rem 40rem at 0% 10%, rgba(16, 185, 129, 0.1), transparent 55%);
+    background-attachment: fixed;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
+}
+
+/* Glassmorphism surface */
+.glass {
+  background-color: color-mix(in srgb, var(--color-card) 75%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* Large font accessibility mode */
+html.large-font {
+  font-size: 20px;
+}
+
+@keyframes float-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-float-up {
+  animation: float-up 0.5s ease-out both;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 1.8s infinite;
+}
+
+/* AI scan line sweeping animation for the hero card */
+@keyframes scan {
+  0% {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(900%);
+    opacity: 0;
+  }
+}
+.animate-scan {
+  animation: scan 3s ease-in-out infinite;
+}
+
+@keyframes soft-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.animate-soft-glow {
+  animation: soft-glow 3s ease-in-out infinite;
+}
+
+.scroll-reveal {
+  opacity: 0;
+  filter: blur(8px);
+  transition:
+    opacity 700ms ease,
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 700ms ease;
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform, filter;
+}
+.scroll-reveal-up {
+  transform: translateY(28px);
+}
+.scroll-reveal-left {
+  transform: translateX(-28px);
+}
+.scroll-reveal-right {
+  transform: translateX(28px);
+}
+.scroll-reveal-zoom {
+  transform: scale(0.96);
+}
+.scroll-reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+  filter: blur(0);
+}
+
+@keyframes loader-orbit {
+  from {
+    transform: rotate(0deg) translateX(78px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(78px) rotate(-360deg);
+  }
+}
+.loader-orbit-dot {
+  animation: loader-orbit 2.4s linear infinite;
+}
+
+@keyframes loader-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+.loader-sweep {
+  animation: loader-sweep 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .scroll-reveal {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
