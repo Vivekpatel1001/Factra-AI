@@ -12,6 +12,17 @@ export default function ResultCard({ result, onReset }) {
   const { t } = useApp()
   const v = getVerdict(result.verdict, t)
   const Icon = v.icon
+  const trustBreakdown = result.trustBreakdown
+  const trustMetrics = trustBreakdown
+    ? [
+        ["Evidence quality", trustBreakdown.evidenceQuality],
+        ["Recency", trustBreakdown.recency],
+        ["Source reliability", trustBreakdown.sourceReliability],
+        ["Claim clarity", trustBreakdown.claimClarity],
+        ["Confidence", trustBreakdown.confidence],
+      ]
+    : []
+  const extractedClaims = Array.isArray(result.claims) ? result.claims : []
 
   const handleDownload = () => {
     const doc = new jsPDF({ unit: "pt", format: "a4" })
@@ -45,6 +56,20 @@ export default function ResultCard({ result, onReset }) {
     addText(result.claim, 11)
     addText(t("what_means"), 14, "bold", [21, 78, 138])
     addText(result.meaning, 11)
+
+    if (trustMetrics.length) {
+      addText("Trust score breakdown", 14, "bold", [21, 78, 138])
+      trustMetrics.forEach(([label, value]) => addText(`${label}: ${value}/100`, 10))
+    }
+
+    if (extractedClaims.length > 1) {
+      addText("Extracted checkable claims", 14, "bold", [21, 78, 138])
+      extractedClaims.forEach((item, index) => {
+        const verdict = getVerdict(item.verdict, t)
+        addText(`${index + 1}. ${item.text}`, 10, "bold")
+        addText(`${t("verdict_label")}: ${verdict.label}    ${t("trust_score")}: ${item.trustScore}/100`, 10)
+      })
+    }
 
     if (result.transcript) {
       addText(t("transcript_result_title"), 14, "bold", [21, 78, 138])
@@ -111,6 +136,49 @@ export default function ResultCard({ result, onReset }) {
             </h3>
             <p className="mt-2 text-lg leading-relaxed text-foreground">{result.meaning}</p>
           </div>
+          {!!trustMetrics.length && (
+            <div className="mt-8">
+              <h3 className="font-display text-xl font-bold">Trust score breakdown</h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {trustMetrics.map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-border bg-background p-4">
+                    <div className="flex items-center justify-between gap-3 text-sm font-bold">
+                      <span className="text-foreground">{label}</span>
+                      <span className="text-muted-foreground">{value}/100</span>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, value || 0))}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {extractedClaims.length > 1 && (
+            <div className="mt-8">
+              <h3 className="font-display text-xl font-bold">Extracted checkable claims</h3>
+              <div className="mt-3 grid gap-3">
+                {extractedClaims.map((item) => {
+                  const claimVerdict = getVerdict(item.verdict, t)
+                  return (
+                    <div key={item.id || item.text} className="rounded-2xl border border-border bg-background p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <p className="break-words text-base font-semibold text-foreground">{item.text}</p>
+                        <span
+                          className="inline-flex shrink-0 rounded-full px-3 py-1 text-sm font-bold"
+                          style={{ color: claimVerdict.color, backgroundColor: claimVerdict.soft }}
+                        >
+                          {claimVerdict.label} - {item.trustScore}/100
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{item.meaning}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {result.timeline && (
             <div className="mt-8">

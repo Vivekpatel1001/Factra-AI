@@ -1,19 +1,25 @@
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { ArrowRight, Lock, Mail, ShieldCheck, UserRound } from "lucide-react"
 import Button from "../components/ui/Button.jsx"
 import Card from "../components/ui/Card.jsx"
 import ScrollReveal from "../components/ScrollReveal.jsx"
 import { login, signup } from "../lib/api.js"
 import { useApp } from "../context/AppContext.jsx"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 export default function AuthPage({ mode = "login" }) {
-  const { t, setUser } = useApp()
+  const { t, setUser, isAuthenticated, authLoading } = useApp()
+  const navigate = useNavigate()
   const isSignup = mode === "signup"
   const benefits = ["auth_benefit_1", "auth_benefit_2", "auth_benefit_3"]
-  const [message, setMessage] = useState("")
   const [error, setError] = useState("")
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      navigate("/", { replace: true })
+    }
+  }, [authLoading, isAuthenticated, navigate])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -24,13 +30,12 @@ export default function AuthPage({ mode = "login" }) {
       password: String(form.get("password") || ""),
     }
 
-    setMessage("")
     setError("")
     setSubmitting(true)
     try {
       const data = isSignup ? await signup(payload) : await login(payload)
       setUser(data.user)
-      setMessage(`${t("auth_success")} ${data.user.name}`)
+      navigate("/", { replace: true })
     } catch (err) {
       setError(err.message || t("auth_failed"))
     } finally {
@@ -133,12 +138,6 @@ export default function AuthPage({ mode = "login" }) {
               {submitting ? t("please_wait") : isSignup ? t("create_account") : t("login")}
               <ArrowRight className="h-5 w-5" />
             </Button>
-
-            {message && (
-              <p className="rounded-2xl bg-[var(--color-true-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-true)]">
-                {message}
-              </p>
-            )}
             {error && (
               <p className="rounded-2xl bg-[var(--color-false-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-false)]">
                 {error}
@@ -157,3 +156,4 @@ export default function AuthPage({ mode = "login" }) {
     </div>
   )
 }
+

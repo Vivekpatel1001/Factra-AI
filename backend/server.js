@@ -6,6 +6,8 @@ import express from "express"
 import next from "next"
 import { createVerificationResult, extractVideoLinkContext, extractVideoTextWithGemini } from "./services/verification.js"
 import {
+  checkSupabaseConnection,
+  createAuthUser as createSupabaseAuthUser,
   deleteSession as deleteSupabaseSession,
   findSession as findSupabaseSession,
   findUserByEmail as findSupabaseUserByEmail,
@@ -47,6 +49,16 @@ const reports = []
 
 const json = (res, status, body) => res.status(status).json(body)
 
+function publicErrorMessage(error, fallback = "Request failed.") {
+  const message = String(error?.message || error || "")
+  if (/RESOURCE_EXHAUSTED|quota|rate limit|GenerateRequestsPerDay|GenerateRequestsPerMinute|429/i.test(message)) {
+    return "Gemini free quota is currently exhausted. Please wait and try again later, or add a new Gemini API key/billing. Factra will use local extraction and conservative unverified results when possible."
+  }
+  if (/ENOTFOUND|fetch failed|network|timed out/i.test(message)) {
+    return "The external service is not reachable right now. Please check your internet/API configuration and try again."
+  }
+  return message && message.length < 260 ? message : fallback
+}
 const normalizeEmail = (email = "") => String(email).trim().toLowerCase()
 
 const hashPassword = (password, salt = crypto.randomBytes(16).toString("hex")) => {
@@ -137,11 +149,12 @@ server.use((req, res, nextMiddleware) => {
   return nextMiddleware()
 })
 
-server.get("/api/health", (req, res) => {
+server.get("/api/health", async (req, res) => {
   json(res, 200, {
     ok: true,
     service: "Factra AI backend",
     technologies: ["Next.js", "Express.js"],
+    supabase: await checkSupabaseConnection(),
     timestamp: new Date().toISOString(),
   })
 })
@@ -168,9 +181,14 @@ server.post("/api/auth/signup", async (req, res) => {
   if (isSupabaseConfigured()) {
     try {
       await insertSupabaseUser(user)
+      try {
+        await createSupabaseAuthUser(user, password)
+      } catch (error) {
+        console.warn(`Supabase Auth user creation failed. Custom app_users row was saved: ${error.message}`)
+      }
     } catch (error) {
-      console.warn(`Supabase user insert failed, using local fallback: ${error.message}`)
-      users.set(email, user)
+      console.warn(`Supabase user insert failed: ${error.message}`)
+      return json(res, 502, { error: `Supabase user insert failed: ${error.message}` })
     }
   } else users.set(email, user)
 
@@ -179,8 +197,8 @@ server.post("/api/auth/signup", async (req, res) => {
     try {
       await insertSupabaseSession(token, user)
     } catch (error) {
-      console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
-      sessions.set(token, { email, createdAt: new Date().toISOString() })
+      console.warn(`Supabase session insert failed: ${error.message}`)
+      return json(res, 502, { error: `Supabase session insert failed: ${error.message}` })
     }
   } else sessions.set(token, { email, createdAt: new Date().toISOString() })
   return json(res, 201, { token, user: publicUser(user) })
@@ -200,8 +218,8 @@ server.post("/api/auth/login", async (req, res) => {
     try {
       await insertSupabaseSession(token, user)
     } catch (error) {
-      console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
-      sessions.set(token, { email, createdAt: new Date().toISOString() })
+      console.warn(`Supabase session insert failed: ${error.message}`)
+      return json(res, 502, { error: `Supabase session insert failed: ${error.message}` })
     }
   } else sessions.set(token, { email, createdAt: new Date().toISOString() })
   return json(res, 200, { token, user: publicUser(user) })
@@ -244,7 +262,7 @@ server.post("/api/video/link-extract", async (req, res) => {
     const extraction = await extractVideoLinkContext({ url })
     return json(res, 200, extraction)
   } catch (error) {
-    return json(res, 502, { error: error.message || "Video link extraction failed." })
+    return json(res, 502, { error: publicErrorMessage(error, "Video link extraction failed.") })
   }
 })
 server.post("/api/video/extract", async (req, res) => {
@@ -254,32 +272,37 @@ server.post("/api/video/extract", async (req, res) => {
     const extraction = await extractVideoTextWithGemini({ fileName, mimeType, data })
     return json(res, 200, extraction)
   } catch (error) {
-    return json(res, 502, { error: error.message || "Video extraction failed." })
+    return json(res, 502, { error: publicErrorMessage(error, "Video extraction failed.") })
   }
 })
 server.post("/api/verify", async (req, res) => {
-  const result = await createVerificationResult(req.body)
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, "")
-  const session = token ? sessions.get(token) : null
-  const user = session ? users.get(session.email) : null
+  try {
+    const result = await createVerificationResult(req.body)
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, "")
+    const session = token ? sessions.get(token) : null
+    const user = session ? users.get(session.email) : null
 
-  const report = {
-    id: crypto.randomUUID(),
-    userId: user?.id || null,
-    inputType: result.inputType,
-    language: result.language,
-    createdAt: new Date().toISOString(),
-    result,
-  }
-  reports.unshift(report)
-  if (isSupabaseConfigured()) {
-    try {
-      await insertSupabaseReport(report)
-    } catch (error) {
-      console.warn(`Supabase report insert failed, kept local fallback: ${error.message}`)
+    const report = {
+      id: crypto.randomUUID(),
+      userId: user?.id || null,
+      inputType: result.inputType,
+      language: result.language,
+      createdAt: new Date().toISOString(),
+      result,
     }
+    reports.unshift(report)
+    if (isSupabaseConfigured()) {
+      try {
+        await insertSupabaseReport(report)
+      } catch (error) {
+        console.warn(`Supabase report insert failed, kept local fallback: ${error.message}`)
+      }
+    }
+    return json(res, 200, { reportId: report.id, result })
+  } catch (error) {
+    console.error(`Verification failed: ${error.message}`)
+    return json(res, 502, { error: publicErrorMessage(error, "Verification failed.") })
   }
-  return json(res, 200, { reportId: report.id, result })
 })
 
 server.all(/^\/api\/.*/, (req, res) => {
@@ -291,3 +314,4 @@ server.all(/.*/, (req, res) => handle(req, res))
 server.listen(port, () => {
   console.log(`Factra backend ready at http://127.0.0.1:${port}`)
 })
+

@@ -32,12 +32,19 @@ export default function VideoTimeline({ items = [] }) {
                   <Clock className="h-4 w-4" /> {item.time}
                 </span>
                 <p className="mt-2 break-words text-lg font-semibold">{item.claim}</p>
-                <span
-                  className="mt-2 inline-flex rounded-full px-3 py-1 text-sm font-bold"
-                  style={{ color: v.color, backgroundColor: v.soft }}
-                >
-                  {v.label}
-                </span>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span
+                    className="inline-flex rounded-full px-3 py-1 text-sm font-bold"
+                    style={{ color: v.color, backgroundColor: v.soft }}
+                  >
+                    {v.label}
+                  </span>
+                  {typeof item.trustScore === "number" && (
+                    <span className="inline-flex rounded-full bg-muted px-3 py-1 text-sm font-bold text-muted-foreground">
+                      {item.trustScore}/100
+                    </span>
+                  )}
+                </div>
                 {(item.result === "RISKY" || item.result === "MANIPULATIVE" || item.result === "FALSE") && (
                   <p className="mt-2 text-sm font-semibold text-muted-foreground">
                     {t("video_warning")}

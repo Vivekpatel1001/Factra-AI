@@ -26,10 +26,71 @@ const canvasToBlob = (canvas) =>
     }, "image/png")
   })
 
-async function preprocessImage(file) {
-  const bitmap = await createImageBitmap(file)
+function getOtsuThreshold(histogram, totalPixels) {
+  let sum = 0
+  for (let i = 0; i < 256; i += 1) sum += i * histogram[i]
+
+  let sumBackground = 0
+  let weightBackground = 0
+  let bestVariance = 0
+  let threshold = 160
+
+  for (let i = 0; i < 256; i += 1) {
+    weightBackground += histogram[i]
+    if (!weightBackground) continue
+    const weightForeground = totalPixels - weightBackground
+    if (!weightForeground) break
+
+    sumBackground += i * histogram[i]
+    const meanBackground = sumBackground / weightBackground
+    const meanForeground = (sum - sumBackground) / weightForeground
+    const variance = weightBackground * weightForeground * (meanBackground - meanForeground) ** 2
+    if (variance > bestVariance) {
+      bestVariance = variance
+      threshold = i
+    }
+  }
+
+  return threshold
+}
+
+function prepareImageData(imageData, mode) {
+  const { data, width, height } = imageData
+  const gray = new Uint8ClampedArray(width * height)
+  const histogram = new Array(256).fill(0)
+
+  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+    const value = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114)
+    gray[p] = value
+    histogram[value] += 1
+  }
+
+  const threshold = getOtsuThreshold(histogram, gray.length)
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const p = y * width + x
+      const i = p * 4
+      const original = gray[p]
+      const left = gray[y * width + Math.max(0, x - 1)]
+      const right = gray[y * width + Math.min(width - 1, x + 1)]
+      const top = gray[Math.max(0, y - 1) * width + x]
+      const bottom = gray[Math.min(height - 1, y + 1) * width + x]
+      const sharpened = Math.max(0, Math.min(255, original * 1.72 - (left + right + top + bottom) * 0.18))
+      const contrasted = Math.max(0, Math.min(255, (sharpened - 128) * 1.45 + 128))
+      const value = mode === "binary" ? (contrasted > threshold - 6 ? 255 : 0) : contrasted
+      data[i] = value
+      data[i + 1] = value
+      data[i + 2] = value
+      data[i + 3] = 255
+    }
+  }
+
+  return imageData
+}
+
+function renderPreparedCanvas(bitmap, mode) {
   const maxSide = Math.max(bitmap.width, bitmap.height)
-  const scale = Math.min(4, Math.max(2.4, 3400 / maxSide))
+  const scale = Math.min(4.4, Math.max(2.2, 3600 / maxSide))
   const canvas = document.createElement("canvas")
   canvas.width = Math.round(bitmap.width * scale)
   canvas.height = Math.round(bitmap.height * scale)
@@ -37,24 +98,22 @@ async function preprocessImage(file) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true })
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = "high"
+  ctx.fillStyle = "#fff"
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  ctx.putImageData(prepareImageData(ctx.getImageData(0, 0, canvas.width, canvas.height), mode), 0, 0)
+  return canvas
+}
 
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-  const data = imageData.data
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114
-    const normalized = Math.max(0, Math.min(255, (gray - 128) * 2.05 + 128))
-    const thresholded = normalized > 178 ? 255 : normalized < 118 ? 0 : normalized
-    data[i] = thresholded
-    data[i + 1] = thresholded
-    data[i + 2] = thresholded
-  }
-  ctx.putImageData(imageData, 0, 0)
-
+async function preprocessImage(file) {
+  const bitmap = await createImageBitmap(file)
+  const canvas = renderPreparedCanvas(bitmap, "enhanced")
+  const binaryCanvas = renderPreparedCanvas(bitmap, "binary")
   const blob = await canvasToBlob(canvas)
   return {
     blob,
     canvas,
+    binaryCanvas,
     width: canvas.width,
     height: canvas.height,
     previewUrl: URL.createObjectURL(blob),
@@ -125,25 +184,27 @@ function getOcrRegions(preparedImage, layout) {
   ]
 }
 
-function cleanOcrText(value) {
-  const rawLines = String(value || "")
+function cleanOcrLine(value) {
+  return String(value || "")
     .replace(/[|]{2,}/g, " ")
     .replace(/[ \t]+/g, " ")
+    .replace(/^[|:;'`.,\-\s]+/g, "")
+    .replace(/[|]+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim()
+}
+
+function cleanOcrText(value) {
+  const rawLines = String(value || "")
     .split(/\n+/)
-    .map((line) =>
-      line
-        .replace(/^[|:;'Ã¢â‚¬â„¢`.,\-\s]+/g, "")
-        .replace(/[|]+/g, " ")
-        .replace(/\s+([,.;:!?])/g, "$1")
-        .trim(),
-    )
+    .map(cleanOcrLine)
     .filter(Boolean)
 
   const cleaned = rawLines.filter((line, index) => {
     const nextLine = rawLines[index + 1] || ""
     const isLikelyLogoArtifact =
       index === 0 && nextLine.length > 12 && /^[A-Z]{1,4}\.?$/.test(line) && !/[0-9]/.test(line)
-    const isMostlyNoise = line.length <= 3 && !/[a-z0-9]/i.test(line)
+    const isMostlyNoise = line.length <= 3 && !/[a-z0-9\u0900-\u097F\u0A80-\u0AFF]/i.test(line)
     return !isLikelyLogoArtifact && !isMostlyNoise
   })
 
@@ -160,22 +221,60 @@ function cleanOcrText(value) {
   return joined.join("\n").trim()
 }
 
+function formatOcrLines(lines = [], fallbackText = "") {
+  const lineText = lines
+    .map((line) => cleanOcrLine(line.text))
+    .filter(Boolean)
+
+  return lineText.length ? lineText.join("\n").trim() : cleanOcrText(fallbackText)
+}
+
+function formatOcrResults(results = [], layout = "auto") {
+  const sections = results.map((result) => result.text).filter(Boolean)
+  if (!sections.length) return ""
+  return layout === "newspaper" ? sections.join("\n\n") : cleanOcrText(sections.join("\n"))
+}
+
+function mapOcrBox(item, offset = { x: 0, y: 0 }) {
+  const text = cleanOcrLine(item?.text)
+  const bbox = item?.bbox
+  if (!text || !bbox) return null
+  return {
+    text,
+    confidence: Math.round(item.confidence || 0),
+    bbox: {
+      x0: bbox.x0 + offset.x,
+      y0: bbox.y0 + offset.y,
+      x1: bbox.x1 + offset.x,
+      y1: bbox.y1 + offset.y,
+    },
+  }
+}
+
 function mapOcrWords(words = [], offset = { x: 0, y: 0 }) {
   return words
-    .map((word) => ({
-      text: String(word.text || "").trim(),
-      confidence: Math.round(word.confidence || 0),
-      bbox: word.bbox
-        ? {
-            x0: word.bbox.x0 + offset.x,
-            y0: word.bbox.y0 + offset.y,
-            x1: word.bbox.x1 + offset.x,
-            y1: word.bbox.y1 + offset.y,
-          }
-        : null,
-    }))
-    .filter((word) => word.text && word.bbox && word.confidence >= 28)
-    .slice(0, 260)
+    .map((word) => mapOcrBox(word, offset))
+    .filter((word) => word && word.confidence >= 45)
+    .slice(0, 320)
+}
+
+function mapOcrLines(lines = [], offset = { x: 0, y: 0 }) {
+  return lines
+    .map((line) => mapOcrBox(line, offset))
+    .filter((line) => line && line.text.length > 1 && line.confidence >= 35)
+    .slice(0, 120)
+}
+
+function detectOcrLanguage(text = "") {
+  const counts = {
+    eng: (text.match(/[A-Za-z]/g) || []).length,
+    hin: (text.match(/[\u0900-\u097F]/g) || []).length,
+    guj: (text.match(/[\u0A80-\u0AFF]/g) || []).length,
+  }
+  const active = Object.entries(counts).filter(([, count]) => count >= 4)
+  if (active.length > 1) return "mixed"
+  if (!active.length) return "unknown"
+  return active.sort((a, b) => b[1] - a[1])[0][0]
 }
 
 function weightedConfidence(results) {
@@ -190,6 +289,19 @@ function weightedConfidence(results) {
 }
 
 
+function scoreOcrResult(result) {
+  const text = cleanOcrText(result?.text || "")
+  const confidence = Math.max(0, result?.confidence || 0)
+  const lineCount = (text.match(/\n/g) || []).length + (text ? 1 : 0)
+  const usefulChars = (text.match(/[a-z0-9\u0900-\u097F\u0A80-\u0AFF]/gi) || []).length
+  return confidence + Math.min(26, usefulChars / 18) + Math.min(12, lineCount * 1.5)
+}
+
+function selectBestOcrResult(results = []) {
+  return results
+    .filter((result) => cleanOcrText(result?.text || ""))
+    .sort((a, b) => scoreOcrResult(b) - scoreOcrResult(a))[0] || results[0] || { text: "", confidence: 0, words: [], lines: [] }
+}
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -197,6 +309,20 @@ function fileToBase64(file) {
     reader.onerror = () => reject(new Error("Could not read video file."))
     reader.readAsDataURL(file)
   })
+}
+function extractKeywords(value, limit = 12) {
+  const stopWords = new Set([
+    "the", "and", "for", "with", "this", "that", "from", "have", "has", "are", "was", "were", "will", "you", "your", "not", "but", "all", "any", "can", "our", "their", "they", "his", "her", "she", "him", "its", "into", "about", "after", "before", "speech", "transcript", "visible", "text", "ocr",
+  ])
+  const counts = new Map()
+  for (const token of String(value || "").toLowerCase().match(/[a-z0-9\u0900-\u097f\u0a80-\u0aff]{3,}/g) || []) {
+    if (stopWords.has(token)) continue
+    counts.set(token, (counts.get(token) || 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
+    .slice(0, limit)
+    .map(([token]) => token)
 }
 const demoTranscript = [
   "[00:12] Government is giving free money to everyone.",
@@ -216,10 +342,12 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
   const [ocrStatus, setOcrStatus] = useState("idle")
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrConfidence, setOcrConfidence] = useState(null)
-  const [ocrLanguage, setOcrLanguage] = useState("eng")
-  const [ocrLayout, setOcrLayout] = useState("newspaper")
+  const [ocrLanguage, setOcrLanguage] = useState("auto")
+  const [ocrLayout, setOcrLayout] = useState("auto")
   const [ocrError, setOcrError] = useState("")
   const [ocrWords, setOcrWords] = useState([])
+  const [ocrLines, setOcrLines] = useState([])
+  const [ocrDetectedLanguage, setOcrDetectedLanguage] = useState("")
   const [ocrPreview, setOcrPreview] = useState(null)
   const [ocrRegions, setOcrRegions] = useState([])
   const [videoTranscript, setVideoTranscript] = useState("")
@@ -236,6 +364,14 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     { key: "video", label: t("tab_video"), icon: Video },
   ]
 
+  const ocrLanguageLabels = {
+    eng: t("ocr_lang_english"),
+    hin: t("ocr_lang_hindi"),
+    guj: t("ocr_lang_gujarati"),
+    mixed: t("ocr_lang_mixed"),
+    unknown: "Unknown",
+  }
+
   useEffect(() => {
     return () => {
       if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl)
@@ -249,6 +385,8 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     setOcrProgress(0)
     setOcrConfidence(null)
     setOcrWords([])
+    setOcrLines([])
+    setOcrDetectedLanguage("")
     setOcrRegions([])
     setOcrPreview((previous) => {
       if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl)
@@ -269,29 +407,51 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
   }
 
   const recognizeRegion = async (Tesseract, preparedImage, region, index, count) => {
-    const regionCanvas = cropCanvas(preparedImage.canvas, region)
-    const regionBlob = await canvasToBlob(regionCanvas)
-    const result = await Tesseract.recognize(regionBlob, ocrLanguage, {
-      tessedit_pageseg_mode: region.label === "Full page" ? Tesseract.PSM.AUTO : Tesseract.PSM.SINGLE_BLOCK,
-      tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
-      preserve_interword_spaces: "1",
-      user_defined_dpi: "300",
-      tessedit_char_blacklist: "|~^_{}[]",
-      logger: (message) => {
-        if (message.status === "recognizing text") {
-          const progress = ((index + (message.progress || 0)) / count) * 100
-          setOcrProgress(Math.round(progress))
+    const recognitionLanguages = ocrLanguage === "auto" ? ["eng", "hin", "guj", "eng+hin+guj"] : [ocrLanguage]
+    const modes = region.label === "Full page" ? [Tesseract.PSM.AUTO] : [Tesseract.PSM.SINGLE_BLOCK]
+    const canvases = [{ canvas: cropCanvas(preparedImage.canvas, region), variant: "enhanced" }]
+    const candidates = []
+
+    for (const [languageIndex, recognitionLanguage] of recognitionLanguages.entries()) {
+      for (const [modeIndex, mode] of modes.entries()) {
+        for (const [canvasIndex, item] of canvases.entries()) {
+          const regionBlob = await canvasToBlob(item.canvas)
+          const stepCount = recognitionLanguages.length * modes.length * canvases.length
+          const options = {
+            langPath: "/tessdata",
+            tessedit_pageseg_mode: mode,
+            tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
+            preserve_interword_spaces: "1",
+            user_defined_dpi: "300",
+            tessedit_char_blacklist: "|~^_{}[]",
+            logger: (message) => {
+              if (message.status === "recognizing text") {
+                const stepIndex = languageIndex * modes.length * canvases.length + modeIndex * canvases.length + canvasIndex
+                const progress = ((index + (stepIndex + (message.progress || 0)) / stepCount) / count) * 100
+                setOcrProgress(Math.round(progress))
+              }
+            },
+          }
+
+          try {
+            const result = await Tesseract.recognize(regionBlob, recognitionLanguage, options)
+            candidates.push({
+              text: formatOcrLines(result.data.lines, result.data.text),
+              confidence: Math.round(result.data.confidence || 0),
+              words: mapOcrWords(result.data.words, { x: region.x, y: region.y }),
+              lines: mapOcrLines(result.data.lines, { x: region.x, y: region.y }),
+              variant: `${item.variant}-${recognitionLanguage}`,
+              mode,
+            })
+          } catch (error) {
+            if (ocrLanguage !== "auto") throw error
+          }
         }
-      },
-    })
-
-    return {
-      text: cleanOcrText(result.data.text),
-      confidence: Math.round(result.data.confidence || 0),
-      words: mapOcrWords(result.data.words, { x: region.x, y: region.y }),
+      }
     }
-  }
 
+    return selectBestOcrResult(candidates)
+  }
   const runImageOcr = async (file = imageFile) => {
     if (!file) return
     resetOcrState()
@@ -308,9 +468,11 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
         results.push(await recognizeRegion(Tesseract, preparedImage, regions[i], i, regions.length))
       }
 
-      const extracted = cleanOcrText(results.map((result) => result.text).filter(Boolean).join("\n\n"))
+      const extracted = formatOcrResults(results, ocrLayout)
       setOcrText(extracted)
       setOcrWords(results.flatMap((result) => result.words))
+      setOcrLines(results.flatMap((result) => result.lines))
+      setOcrDetectedLanguage(detectOcrLanguage(extracted))
       setOcrConfidence(weightedConfidence(results))
       setOcrStatus(extracted ? "done" : "empty")
       if (!extracted) setOcrError(t("ocr_empty"))
@@ -366,11 +528,10 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
       if (extraction.combinedText) parts.push(extraction.combinedText)
       if (extraction.speechTranscript) parts.push(`Speech/context transcript:\n${extraction.speechTranscript}`)
       if (extraction.visibleText) parts.push(`Visible text / OCR:\n${extraction.visibleText}`)
-      if (extraction.notes) parts.push(`Notes:\n${extraction.notes}`)
       const extractedText = parts.join("\n\n").trim()
       setVideoTranscript(extractedText)
       setVideoLinkStatus(extractedText ? "done" : "empty")
-      if (!extractedText) setVideoExtractionError("Could not find public context for this video. Paste the spoken words or upload a shorter clip.")
+      if (!extractedText) setVideoExtractionError(extraction.notes || "Could not find public context for this video. Paste the spoken words or upload a shorter clip.")
       return extractedText
     } catch (err) {
       setVideoLinkStatus("error")
@@ -384,6 +545,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     if (tab === "image" && !imageFile) return setError(t("error_image_required"))
     if (tab === "image" && ocrStatus === "reading") return setError(t("error_ocr_wait"))
     if (tab === "image" && !ocrText.trim()) return setError(t("error_ocr_required"))
+    if (tab === "image" && ocrConfidence !== null && ocrConfidence < 45) return setError("OCR confidence is low. Please correct the extracted text manually before generating a report.")
     if (tab === "video" && !videoFile && !videoUrl.trim()) return setError("Please upload a video or paste a public video link first.")
     if (tab === "video" && (videoExtractionStatus === "reading" || videoLinkStatus === "reading")) return setError("Please wait while we extract video text/context.")
     if (tab === "video" && videoUrl.trim() && !videoTranscript.trim()) {
@@ -393,13 +555,16 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     if (tab === "video" && !videoTranscript.trim()) return setError(t("error_transcript_required"))
 
     setError("")
+    const finalText = tab === "image" ? ocrText.trim() : tab === "video" ? videoTranscript.trim() : text.trim()
+
     onCheck?.({
       type: tab,
       content: {
-        text: tab === "image" ? ocrText.trim() : text.trim(),
+        text: finalText,
         link: link.trim(),
         transcript: videoTranscript.trim(),
         videoUrl: videoUrl.trim(),
+        keywords: tab === "video" ? extractKeywords(videoTranscript) : [],
         fileName: tab === "image" ? imageFile?.name : tab === "video" ? videoFile?.name || videoUrl.trim() : "",
         ocr:
           tab === "image"
@@ -486,6 +651,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 onChange={(e) => setOcrLanguage(e.target.value)}
                 className="rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
               >
+                <option value="auto">Auto detect</option>
                 <option value="eng">{t("ocr_lang_english")}</option>
                 <option value="hin">{t("ocr_lang_hindi")}</option>
                 <option value="guj">{t("ocr_lang_gujarati")}</option>
@@ -500,8 +666,8 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 onChange={(e) => setOcrLayout(e.target.value)}
                 className="rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
               >
-                <option value="newspaper">Newspaper columns</option>
                 <option value="auto">Auto page</option>
+                <option value="newspaper">Newspaper columns</option>
               </select>
             </div>
             <UploadBox accept="image/*" icon={ImageIcon} onFile={handleImageFile} />
@@ -529,6 +695,11 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                       {t("ocr_confidence")}: {ocrConfidence}%
                     </span>
                   )}
+                  {ocrStatus === "done" && ocrDetectedLanguage && (
+                    <span className="rounded-full bg-card px-3 py-1 text-sm font-bold text-muted-foreground ring-1 ring-border">
+                      Detected: {ocrLanguageLabels[ocrDetectedLanguage] || ocrDetectedLanguage}
+                    </span>
+                  )}
                 </div>
 
                 {ocrPreview?.previewUrl && (
@@ -552,6 +723,20 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                             }}
                           />
                         ))}
+                        {ocrLines.map((line, index) => {
+                          const left = (line.bbox.x0 / ocrPreview.width) * 100
+                          const top = (line.bbox.y0 / ocrPreview.height) * 100
+                          const width = ((line.bbox.x1 - line.bbox.x0) / ocrPreview.width) * 100
+                          const height = ((line.bbox.y1 - line.bbox.y0) / ocrPreview.height) * 100
+                          return (
+                            <span
+                              key={`line-${index}-${line.text}`}
+                              title={line.text}
+                              className="absolute rounded-sm border-2 border-primary bg-primary/10 shadow-[0_0_0_1px_rgba(255,255,255,0.65)]"
+                              style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
+                            />
+                          )
+                        })}
                         {ocrWords.map((word, index) => {
                           const left = (word.bbox.x0 / ocrPreview.width) * 100
                           const top = (word.bbox.y0 / ocrPreview.height) * 100
@@ -594,7 +779,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                   rows={8}
                   spellCheck={false}
                   placeholder={ocrStatus === "reading" ? t("ocr_reading") : t("ocr_placeholder")}
-                  className="mt-4 w-full resize-none rounded-2xl border border-input bg-card px-4 py-3 text-base leading-relaxed focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
+                  className="mt-4 w-full resize-y rounded-2xl border border-input bg-card px-4 py-3 font-mono text-base leading-7 focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
                 />
 
                 {ocrError && (
@@ -604,7 +789,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 )}
                 {ocrStatus === "done" && (
                   <p className="mt-3 rounded-2xl bg-[var(--color-true-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-true)]">
-                    Text extracted with visible OCR boxes. Review and edit it before checking.
+                    Text extracted with detection boxes. Review and correct the text before checking, especially for low-quality images.
                   </p>
                 )}
               </div>
@@ -679,3 +864,10 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     </Card>
   )
 }
+
+
+
+
+
+
+

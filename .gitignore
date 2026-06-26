@@ -13,3 +13,11 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+.venv/
+.venv-whisper/
+*.run.log
+*.run.err.log
+backend.run.log
+backend.run.err.log
+frontend.run.log
+frontend.run.err.log
