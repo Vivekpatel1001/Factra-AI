@@ -8,7 +8,7 @@ import { useApp } from "../context/AppContext.jsx"
 import { useState } from "react"
 
 export default function AuthPage({ mode = "login" }) {
-  const { t } = useApp()
+  const { t, setUser } = useApp()
   const isSignup = mode === "signup"
   const benefits = ["auth_benefit_1", "auth_benefit_2", "auth_benefit_3"]
   const [message, setMessage] = useState("")
@@ -29,6 +29,7 @@ export default function AuthPage({ mode = "login" }) {
     setSubmitting(true)
     try {
       const data = isSignup ? await signup(payload) : await login(payload)
+      setUser(data.user)
       setMessage(`${t("auth_success")} ${data.user.name}`)
     } catch (err) {
       setError(err.message || t("auth_failed"))

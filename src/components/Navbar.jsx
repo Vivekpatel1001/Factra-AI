@@ -1,12 +1,12 @@
 import { useState } from "react"
 import { Link, NavLink, useNavigate } from "react-router-dom"
-import { ShieldCheck, Menu, X, Type, Globe } from "lucide-react"
+import { ShieldCheck, Menu, X, Type, Globe, LogOut } from "lucide-react"
 import Button from "./ui/Button.jsx"
 import { useApp } from "../context/AppContext.jsx"
 import { languages } from "../lib/translations.js"
 
 export default function Navbar() {
-  const { t, language, setLanguage, largeFont, toggleFont } = useApp()
+  const { t, language, setLanguage, largeFont, toggleFont, isAuthenticated, user, logout } = useApp()
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
 
@@ -15,12 +15,19 @@ export default function Navbar() {
     { to: "/verify", label: t("nav_verify") },
     { to: "/how-it-works", label: t("nav_how") },
     { to: "/about", label: t("nav_about") },
+    ...(isAuthenticated ? [{ to: "/saved", label: "Saved" }] : []),
   ]
 
   const linkClass = ({ isActive }) =>
     `rounded-full px-4 py-2 text-base font-medium transition-colors ${
       isActive ? "bg-primary-soft text-primary" : "text-muted-foreground hover:text-foreground"
     }`
+
+  const handleLogout = async () => {
+    await logout()
+    setOpen(false)
+    navigate("/")
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
@@ -50,9 +57,7 @@ export default function Navbar() {
               className="appearance-none rounded-full border border-border bg-card py-2 pl-9 pr-4 text-sm font-medium text-foreground focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
             >
               {languages.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.label}
-                </option>
+                <option key={lang.code} value={lang.code}>{lang.label}</option>
               ))}
             </select>
           </div>
@@ -70,9 +75,25 @@ export default function Navbar() {
             <span className="sr-only">{t("large_font")}</span>
           </button>
 
-          <Button className="hidden sm:inline-flex" onClick={() => navigate("/verify")}>
-            {t("verify_now")}
-          </Button>
+          {isAuthenticated ? (
+            <>
+              <Button className="hidden sm:inline-flex" variant="secondary" onClick={() => navigate("/saved")}>Saved</Button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                title={`Signed in as ${user?.name || user?.email}`}
+                className="hidden h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground sm:flex"
+              >
+                <LogOut className="h-5 w-5" />
+                <span className="sr-only">Log out</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <Button className="hidden sm:inline-flex" variant="secondary" onClick={() => navigate("/login")}>Log in</Button>
+              <Button className="hidden sm:inline-flex" onClick={() => navigate("/signup")}>Sign up</Button>
+            </>
+          )}
 
           <button
             type="button"
@@ -90,13 +111,7 @@ export default function Navbar() {
         <div className="border-t border-border bg-card px-4 py-4 lg:hidden">
           <nav className="flex flex-col gap-1">
             {links.map((l) => (
-              <NavLink
-                key={l.to}
-                to={l.to}
-                end={l.to === "/"}
-                onClick={() => setOpen(false)}
-                className={linkClass}
-              >
+              <NavLink key={l.to} to={l.to} end={l.to === "/"} onClick={() => setOpen(false)} className={linkClass}>
                 {l.label}
               </NavLink>
             ))}
@@ -109,9 +124,7 @@ export default function Navbar() {
               className="flex-1 rounded-full border border-border bg-background py-3 px-4 text-base font-medium"
             >
               {languages.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.label}
-                </option>
+                <option key={lang.code} value={lang.code}>{lang.label}</option>
               ))}
             </select>
             <button
@@ -125,6 +138,14 @@ export default function Navbar() {
               <Type className="h-5 w-5" /> {t("large_font")}
             </button>
           </div>
+          {isAuthenticated ? (
+            <Button className="mt-4 w-full" variant="secondary" size="lg" onClick={handleLogout}>Log out</Button>
+          ) : (
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <Button variant="secondary" size="lg" onClick={() => { setOpen(false); navigate("/login") }}>Log in</Button>
+              <Button size="lg" onClick={() => { setOpen(false); navigate("/signup") }}>Sign up</Button>
+            </div>
+          )}
           <Button className="mt-4 w-full" size="lg" onClick={() => { setOpen(false); navigate("/verify") }}>
             {t("verify_now")}
           </Button>

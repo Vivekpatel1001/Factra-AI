@@ -1,9 +1,39 @@
 import crypto from "node:crypto"
+import fs from "node:fs"
+import path from "node:path"
 import { fileURLToPath } from "node:url"
 import express from "express"
 import next from "next"
-import { createVerificationResult } from "./services/verification.js"
+import { createVerificationResult, extractVideoLinkContext, extractVideoTextWithGemini } from "./services/verification.js"
+import {
+  deleteSession as deleteSupabaseSession,
+  findSession as findSupabaseSession,
+  findUserByEmail as findSupabaseUserByEmail,
+  insertReport as insertSupabaseReport,
+  insertSession as insertSupabaseSession,
+  insertUser as insertSupabaseUser,
+  isSupabaseConfigured,
+  listReportsForUser as listSupabaseReportsForUser,
+} from "./services/supabase.js"
 
+const loadLocalEnv = () => {
+  for (const file of [".env.local", ".env"]) {
+    const envPath = path.resolve(process.cwd(), file)
+    if (!fs.existsSync(envPath)) continue
+    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/)
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith("#")) continue
+      const separator = trimmed.indexOf("=")
+      if (separator === -1) continue
+      const key = trimmed.slice(0, separator).trim()
+      const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, "")
+      if (key && process.env[key] === undefined) process.env[key] = value
+    }
+  }
+}
+
+loadLocalEnv()
 const dev = process.env.NODE_ENV !== "production"
 const port = Number(process.env.BACKEND_PORT || 4000)
 const frontendOrigin = process.env.FRONTEND_ORIGIN || "http://127.0.0.1:5173"
@@ -37,9 +67,57 @@ const publicUser = (user) => ({
   createdAt: user.createdAt,
 })
 
-const requireAuth = (req, res, nextMiddleware) => {
+const getStoredUserByEmail = async (email) => {
+  if (isSupabaseConfigured()) {
+    try {
+      const supabaseUser = await findSupabaseUserByEmail(email)
+      if (supabaseUser) {
+        return {
+          id: supabaseUser.id,
+          name: supabaseUser.name,
+          email: supabaseUser.email,
+          passwordHash: supabaseUser.password_hash,
+          createdAt: supabaseUser.created_at,
+        }
+      }
+    } catch (error) {
+      console.warn(`Supabase user lookup failed, using local fallback: ${error.message}`)
+    }
+  }
+  return users.get(email) || null
+}
+
+const getUserFromToken = async (token) => {
+  if (!token) return null
+  if (isSupabaseConfigured()) {
+    try {
+      const session = await findSupabaseSession(token)
+      if (session?.user) return session.user
+    } catch (error) {
+      console.warn(`Supabase session lookup failed, using local fallback: ${error.message}`)
+    }
+  }
+  const session = sessions.get(token)
+  return session ? users.get(session.email) : null
+}
+const requireAuth = async (req, res, nextMiddleware) => {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "")
-  const session = token ? sessions.get(token) : null
+  if (!token) return json(res, 401, { error: "Unauthorized" })
+
+  if (isSupabaseConfigured()) {
+    try {
+      const session = await findSupabaseSession(token)
+      if (session?.user) {
+        req.user = session.user
+        req.token = token
+        return nextMiddleware()
+      }
+    } catch (error) {
+      console.warn(`Supabase session lookup failed, using local fallback: ${error.message}`)
+    }
+  }
+
+  const session = sessions.get(token)
   if (!session) return json(res, 401, { error: "Unauthorized" })
   req.user = users.get(session.email)
   req.token = token
@@ -50,7 +128,7 @@ await app.prepare()
 
 const server = express()
 
-server.use(express.json({ limit: "1mb" }))
+server.use(express.json({ limit: "35mb" }))
 server.use((req, res, nextMiddleware) => {
   res.setHeader("Access-Control-Allow-Origin", frontendOrigin)
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -68,7 +146,7 @@ server.get("/api/health", (req, res) => {
   })
 })
 
-server.post("/api/auth/signup", (req, res) => {
+server.post("/api/auth/signup", async (req, res) => {
   const email = normalizeEmail(req.body.email)
   const name = String(req.body.name || "").trim()
   const password = String(req.body.password || "")
@@ -76,7 +154,7 @@ server.post("/api/auth/signup", (req, res) => {
   if (!name || !email || password.length < 6) {
     return json(res, 400, { error: "Name, valid email, and 6+ character password are required." })
   }
-  if (users.has(email)) {
+  if (await getStoredUserByEmail(email)) {
     return json(res, 409, { error: "An account already exists for this email." })
   }
 
@@ -87,28 +165,56 @@ server.post("/api/auth/signup", (req, res) => {
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString(),
   }
-  users.set(email, user)
+  if (isSupabaseConfigured()) {
+    try {
+      await insertSupabaseUser(user)
+    } catch (error) {
+      console.warn(`Supabase user insert failed, using local fallback: ${error.message}`)
+      users.set(email, user)
+    }
+  } else users.set(email, user)
 
   const token = crypto.randomUUID()
-  sessions.set(token, { email, createdAt: new Date().toISOString() })
+  if (isSupabaseConfigured()) {
+    try {
+      await insertSupabaseSession(token, user)
+    } catch (error) {
+      console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
+      sessions.set(token, { email, createdAt: new Date().toISOString() })
+    }
+  } else sessions.set(token, { email, createdAt: new Date().toISOString() })
   return json(res, 201, { token, user: publicUser(user) })
 })
 
-server.post("/api/auth/login", (req, res) => {
+server.post("/api/auth/login", async (req, res) => {
   const email = normalizeEmail(req.body.email)
   const password = String(req.body.password || "")
-  const user = users.get(email)
+  const user = await getStoredUserByEmail(email)
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return json(res, 401, { error: "Invalid email or password." })
   }
 
   const token = crypto.randomUUID()
-  sessions.set(token, { email, createdAt: new Date().toISOString() })
+  if (isSupabaseConfigured()) {
+    try {
+      await insertSupabaseSession(token, user)
+    } catch (error) {
+      console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
+      sessions.set(token, { email, createdAt: new Date().toISOString() })
+    }
+  } else sessions.set(token, { email, createdAt: new Date().toISOString() })
   return json(res, 200, { token, user: publicUser(user) })
 })
 
-server.post("/api/auth/logout", requireAuth, (req, res) => {
+server.post("/api/auth/logout", requireAuth, async (req, res) => {
+  if (isSupabaseConfigured()) {
+    try {
+      await deleteSupabaseSession(req.token)
+    } catch (error) {
+      console.warn(`Supabase session delete failed: ${error.message}`)
+    }
+  }
   sessions.delete(req.token)
   return json(res, 200, { ok: true })
 })
@@ -117,13 +223,42 @@ server.get("/api/me", requireAuth, (req, res) => {
   return json(res, 200, { user: publicUser(req.user) })
 })
 
-server.get("/api/reports", requireAuth, (req, res) => {
-  const userReports = reports.filter((report) => report.userId === req.user.id)
+server.get("/api/reports", requireAuth, async (req, res) => {
+  let userReports = reports.filter((report) => report.userId === req.user.id)
+  if (isSupabaseConfigured()) {
+    try {
+      userReports = await listSupabaseReportsForUser(req.user.id)
+    } catch (error) {
+      console.warn(`Supabase report list failed, using local fallback: ${error.message}`)
+    }
+  }
   return json(res, 200, { reports: userReports })
 })
 
-server.post("/api/verify", (req, res) => {
-  const result = createVerificationResult(req.body)
+
+
+server.post("/api/video/link-extract", async (req, res) => {
+  const { url = "" } = req.body || {}
+  if (!url) return json(res, 400, { error: "Video URL is required." })
+  try {
+    const extraction = await extractVideoLinkContext({ url })
+    return json(res, 200, extraction)
+  } catch (error) {
+    return json(res, 502, { error: error.message || "Video link extraction failed." })
+  }
+})
+server.post("/api/video/extract", async (req, res) => {
+  const { fileName = "video", mimeType = "video/mp4", data = "" } = req.body || {}
+  if (!data) return json(res, 400, { error: "Video data is required." })
+  try {
+    const extraction = await extractVideoTextWithGemini({ fileName, mimeType, data })
+    return json(res, 200, extraction)
+  } catch (error) {
+    return json(res, 502, { error: error.message || "Video extraction failed." })
+  }
+})
+server.post("/api/verify", async (req, res) => {
+  const result = await createVerificationResult(req.body)
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "")
   const session = token ? sessions.get(token) : null
   const user = session ? users.get(session.email) : null
@@ -137,6 +272,13 @@ server.post("/api/verify", (req, res) => {
     result,
   }
   reports.unshift(report)
+  if (isSupabaseConfigured()) {
+    try {
+      await insertSupabaseReport(report)
+    } catch (error) {
+      console.warn(`Supabase report insert failed, kept local fallback: ${error.message}`)
+    }
+  }
   return json(res, 200, { reportId: report.id, result })
 })
 

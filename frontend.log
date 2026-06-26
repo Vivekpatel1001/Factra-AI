@@ -1,0 +1,40 @@
+
+> factra-ai@0.1.0 dev
+> vite --host 127.0.0.1
+
+
+  [32m[1mVITE[22m v8.1.0[39m  [2mready in [0m[1m973[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m11:29:13 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/components/InputTabs.jsx[22m
+[2m11:29:13 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/pages/VerifyPage.jsx, /src/components/InputTabs.jsx[22m
+[2m11:29:13 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/components/ResultCard.jsx[22m
+[2m11:31:51 am[22m [36m[1m[vite][22m[39m [32m.env.local changed, restarting server...[39m
+[2m11:31:51 am[22m [36m[1m[vite][22m[39m server restarted.
+[2m11:33:04 am[22m [36m[1m[vite][22m[39m [32m.env.local changed, restarting server...[39m
+[2m11:33:04 am[22m [36m[1m[vite][22m[39m server restarted.
+[2m11:35:41 am[22m [36m[1m[vite][22m[39m [32m.env.local changed, restarting server...[39m
+[2m11:35:41 am[22m [36m[1m[vite][22m[39m server restarted.
+[2m11:44:29 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/VerifyPage.jsx, /src/components/InputTabs.jsx, /src/index.css[22m
+[2m11:45:04 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/InputTabs.jsx, /src/index.css[22m
+[2m11:45:18 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/InputTabs.jsx, /src/index.css[22m
+[2m11:45:54 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/InputTabs.jsx, /src/index.css[22m
+[2m11:45:54 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/VerifyPage.jsx, /src/components/InputTabs.jsx, /src/index.css[22m
+[2m11:57:37 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/context/AppContext.jsx, /src/index.css[22m
+[2m11:58:00 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/VerifyPage.jsx, /src/components/InputTabs.jsx, /src/context/AppContext.jsx, /src/index.css[22m
+[2m11:58:00 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [33mhmr invalidate [39m[2m/src/context/AppContext.jsx[22m Could not Fast Refresh ("useApp" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m11:58:00 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx, /src/pages/LandingPage.jsx, /src/pages/HowItWorksPage.jsx, /src/components/Navbar.jsx, /src/components/Footer.jsx, /src/pages/AboutPage.jsx, /src/components/HeroSection.jsx, /src/components/ProblemSection.jsx, /src/components/FeatureGrid.jsx, /src/components/HowItWorks.jsx, /src/components/VideoTimeline.jsx, /src/components/AboutSection.jsx, /src/components/LoadingSteps.jsx, /src/components/VerifyDashboard.jsx, /src/components/ResultCard.jsx, /src/components/TrustScore.jsx and 4 more[22m
+[2m11:59:20 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx, /src/index.css[22m
+[2m11:59:41 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/VerifyPage.jsx, /src/index.css[22m
+[2m12:00:33 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Navbar.jsx, /src/index.css[22m
+[2m12:01:05 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/HowItWorksPage.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/VerifyPage.jsx, /src/components/InputTabs.jsx, /src/context/AppContext.jsx, /src/pages/AuthPage.jsx, /src/pages/SavedChecksPage.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/pages/AuthPage.jsx[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/Navbar.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/context/AppContext.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/VerifyPage.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/SavedChecksPage.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/HowItWorksPage.jsx, /src/index.css[22m
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [33mhmr invalidate [39m[2m/src/context/AppContext.jsx[22m Could not Fast Refresh ("useApp" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m12:01:38 pm[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.jsx, /src/pages/LandingPage.jsx, /src/pages/HowItWorksPage.jsx, /src/components/Navbar.jsx, /src/components/Footer.jsx, /src/pages/AboutPage.jsx, /src/components/HeroSection.jsx, /src/components/ProblemSection.jsx, /src/components/FeatureGrid.jsx, /src/components/HowItWorks.jsx, /src/components/VideoTimeline.jsx, /src/components/AboutSection.jsx, /src/components/LoadingSteps.jsx, /src/components/VerifyDashboard.jsx, /src/components/ResultCard.jsx, /src/components/TrustScore.jsx and 7 more[22m

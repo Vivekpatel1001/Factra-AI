@@ -49,3 +49,32 @@ export async function login(payload) {
   setAuthToken(data.token)
   return data
 }
+
+export async function getMe() {
+  return request("/api/me")
+}
+
+export async function logout() {
+  try {
+    return await request("/api/auth/logout", { method: "POST" })
+  } finally {
+    setAuthToken(null)
+  }
+}
+export async function extractVideoContent(payload) {
+  return request("/api/video/extract", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+
+export async function extractVideoLinkContent(payload) {
+  return request("/api/video/link-extract", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+export async function getReports() {
+  return request("/api/reports")
+}

@@ -7,6 +7,8 @@ import LandingPage from "./pages/LandingPage.jsx"
 import VerifyPage from "./pages/VerifyPage.jsx"
 import HowItWorksPage from "./pages/HowItWorksPage.jsx"
 import AboutPage from "./pages/AboutPage.jsx"
+import AuthPage from "./pages/AuthPage.jsx"
+import SavedChecksPage from "./pages/SavedChecksPage.jsx"
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -28,6 +30,9 @@ export default function App() {
             <Route path="/verify" element={<VerifyPage />} />
             <Route path="/how-it-works" element={<HowItWorksPage />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/login" element={<AuthPage mode="login" />} />
+            <Route path="/signup" element={<AuthPage mode="signup" />} />
+            <Route path="/saved" element={<SavedChecksPage />} />
           </Routes>
         </main>
         <Footer />

@@ -1,0 +1,6 @@
+Supabase user lookup failed, using local fallback: fetch failed
+Supabase user insert failed, using local fallback: fetch failed
+Supabase session insert failed, using local fallback: fetch failed
+Supabase report insert failed, kept local fallback: fetch failed
+Supabase session lookup failed, using local fallback: fetch failed
+Supabase report list failed, using local fallback: fetch failed

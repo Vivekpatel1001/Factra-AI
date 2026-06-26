@@ -1,4 +1,5 @@
-import { Download, Share2, RotateCcw, Lightbulb, Megaphone } from "lucide-react"
+import { Download, Share2, RotateCcw, Lightbulb, Megaphone, Database, AlertCircle } from "lucide-react"
+import jsPDF from "jspdf"
 import Card from "./ui/Card.jsx"
 import Button from "./ui/Button.jsx"
 import TrustScore from "./TrustScore.jsx"
@@ -13,28 +14,54 @@ export default function ResultCard({ result, onReset }) {
   const Icon = v.icon
 
   const handleDownload = () => {
-    const lines = [
-      t("report_title"),
-      "================================",
-      "",
-      `${t("claim_label")}: ${result.claim}`,
-      `${t("verdict_label")}: ${v.label}`,
-      `${t("trust_score")}: ${result.trustScore}/100`,
-      "",
-      `${t("what_means")}: ${result.meaning}`,
-      "",
-      `${t("why_say")}:`,
-      ...result.evidence.map((e) => `- ${e.source}: ${e.explanation}`),
-      "",
-      `${t("recommend")}: ${result.recommendation}`,
-    ]
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "factra-ai-report.txt"
-    a.click()
-    URL.revokeObjectURL(url)
+    const doc = new jsPDF({ unit: "pt", format: "a4" })
+    const margin = 44
+    const width = doc.internal.pageSize.getWidth() - margin * 2
+    let y = 48
+
+    const addText = (value, size = 11, style = "normal", color = [35, 35, 35]) => {
+      doc.setFont("helvetica", style)
+      doc.setFontSize(size)
+      doc.setTextColor(...color)
+      const lines = doc.splitTextToSize(String(value || ""), width)
+      for (const line of lines) {
+        if (y > 780) {
+          doc.addPage()
+          y = 48
+        }
+        doc.text(line, margin, y)
+        y += size + 6
+      }
+      y += 4
+    }
+
+    doc.setFillColor(245, 248, 255)
+    doc.rect(0, 0, doc.internal.pageSize.getWidth(), 112, "F")
+    addText("Factra AI Verification Report", 20, "bold", [21, 78, 138])
+    addText(`${t("verdict_label")}: ${v.label}    ${t("trust_score")}: ${result.trustScore}/100`, 13, "bold", [20, 120, 80])
+    y = 138
+
+    addText(t("claim_label"), 14, "bold", [21, 78, 138])
+    addText(result.claim, 11)
+    addText(t("what_means"), 14, "bold", [21, 78, 138])
+    addText(result.meaning, 11)
+
+    if (result.transcript) {
+      addText(t("transcript_result_title"), 14, "bold", [21, 78, 138])
+      addText(result.transcript, 10)
+    }
+
+    addText(t("why_say"), 14, "bold", [21, 78, 138])
+    result.evidence.forEach((item, index) => {
+      addText(`${index + 1}. ${item.source}`, 11, "bold")
+      addText(`${item.explanation}${item.link && item.link !== "#" ? `\nSource: ${item.link}` : ""}`, 10)
+    })
+
+    addText(t("recommend"), 14, "bold", [21, 78, 138])
+    addText(result.recommendation, 11)
+    addText(`Generated: ${new Date().toLocaleString()}`, 9, "normal", [95, 95, 95])
+
+    doc.save("factra-ai-report.pdf")
   }
 
   const handleShare = async () => {
@@ -54,7 +81,6 @@ export default function ResultCard({ result, onReset }) {
   return (
     <div className="mx-auto max-w-3xl animate-float-up">
       <Card className="overflow-hidden">
-        {/* Verdict header */}
         <div className="flex flex-col items-center gap-6 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8" style={{ backgroundColor: v.soft }}>
           <div className="flex items-center gap-4">
             <span className="flex h-16 w-16 items-center justify-center rounded-2xl text-white" style={{ backgroundColor: v.color }}>
@@ -74,13 +100,11 @@ export default function ResultCard({ result, onReset }) {
         </div>
 
         <div className="p-6 sm:p-8">
-          {/* Claim */}
           <div className="rounded-2xl bg-muted px-4 py-3">
             <p className="text-sm font-semibold text-muted-foreground">{t("you_asked_check")}</p>
             <p className="mt-1 text-lg font-medium">{result.claim}</p>
           </div>
 
-          {/* What this means */}
           <div className="mt-6">
             <h3 className="flex items-center gap-2 font-display text-xl font-bold">
               <Lightbulb className="h-6 w-6 text-primary" /> {t("what_means")}
@@ -88,7 +112,6 @@ export default function ResultCard({ result, onReset }) {
             <p className="mt-2 text-lg leading-relaxed text-foreground">{result.meaning}</p>
           </div>
 
-          {/* Video timeline */}
           {result.timeline && (
             <div className="mt-8">
               {result.transcript && (
@@ -103,7 +126,26 @@ export default function ResultCard({ result, onReset }) {
             </div>
           )}
 
-          {/* Evidence */}
+          {result.retrieval && (
+            <div className="mt-8 rounded-2xl border border-border bg-background p-5">
+              <h3 className="flex items-center gap-2 font-display text-xl font-bold">
+                <Database className="h-6 w-6 text-primary" /> Evidence pipeline
+              </h3>
+              <div className="mt-3 grid gap-3 text-sm font-semibold text-muted-foreground sm:grid-cols-3">
+                <span className="rounded-2xl bg-card px-4 py-3">{result.retrieval.engine}</span>
+                <span className="rounded-2xl bg-card px-4 py-3">{result.retrieval.vectorIndex}</span>
+                <span className="rounded-2xl bg-card px-4 py-3">Model: {result.retrieval.model}</span>
+              </div>
+              {!!result.retrieval.searchErrors?.length && (
+                <div className="mt-3 rounded-2xl bg-[var(--color-misleading-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-misleading)]">
+                  <span className="inline-flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" /> Some providers failed, so the result used the available evidence and fallback handling.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="mt-8">
             <h3 className="font-display text-xl font-bold">{t("why_say")}</h3>
             <div className="mt-3 flex flex-col gap-3">
@@ -113,11 +155,7 @@ export default function ResultCard({ result, onReset }) {
             </div>
           </div>
 
-          {/* Recommendation */}
-          <div
-            className="mt-8 flex items-start gap-3 rounded-2xl border-2 p-5"
-            style={{ borderColor: v.color, backgroundColor: v.soft }}
-          >
+          <div className="mt-8 flex items-start gap-3 rounded-2xl border-2 p-5" style={{ borderColor: v.color, backgroundColor: v.soft }}>
             <Megaphone className="h-7 w-7 shrink-0" style={{ color: v.color }} />
             <div>
               <p className="font-display text-lg font-bold" style={{ color: v.color }}>
@@ -127,7 +165,6 @@ export default function ResultCard({ result, onReset }) {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="mt-8 grid gap-3 sm:grid-cols-3">
             <Button variant="secondary" size="lg" onClick={handleDownload}>
               <Download className="h-5 w-5" /> {t("download_report")}
