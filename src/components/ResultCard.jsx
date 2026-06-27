@@ -121,7 +121,7 @@ export default function ResultCard({ result, onReset }) {
               </p>
             </div>
           </div>
-          <TrustScore score={result.trustScore} />
+          <TrustScore score={result.trustScore} verdict={result.verdict} />
         </div>
 
         <div className="p-6 sm:p-8">

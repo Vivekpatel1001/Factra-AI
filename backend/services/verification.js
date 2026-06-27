@@ -603,6 +603,22 @@ function buildTrustBreakdown(claim, evidenceItems, modelConfidence = 50) {
   return { evidenceQuality, recency, sourceReliability: sourceReliabilityScore, claimClarity, confidence, overall }
 }
 
+function scoreForVerdict(verdict, evidenceScore = 50) {
+  if (verdict === "FALSE" || verdict === "RISKY") return 0
+  if (verdict === "MISLEADING" || verdict === "MANIPULATIVE") return 50
+  if (verdict === "UNVERIFIED") return Math.min(clampScore(evidenceScore, 30), 35)
+  return clampScore(evidenceScore, 70)
+}
+
+function applyVerdictScore(verdict, trustBreakdown = {}) {
+  const score = scoreForVerdict(verdict, trustBreakdown.overall)
+  return {
+    ...trustBreakdown,
+    confidence: score,
+    overall: score,
+  }
+}
+
 function sourceTrustLabel(item) {
   const reliability = sourceReliability(item)
   const value = `${item?.source || ""} ${item?.link || ""}`.toLowerCase()
@@ -972,23 +988,31 @@ async function analyzeSingleClaim(claimText, payload = {}) {
     trustBreakdown.confidence = analysis.trustScore
     trustBreakdown.overall = analysis.trustScore
   }
+  const verdictBreakdown = applyVerdictScore(analysis.verdict, trustBreakdown)
   return {
     claim: claimText,
     verdict: analysis.verdict,
-    trustScore: trustBreakdown.overall,
+    trustScore: verdictBreakdown.overall,
     meaning: analysis.meaning,
     recommendation: analysis.recommendation,
     evidence: evidenceItems.map((item) => ({ ...item, trustLevel: sourceTrustLabel(item), sourceReliability: sourceReliability(item) })),
     searchQuery,
     modelUsed: analysis.modelUsed,
     searchErrors: analysis.searchErrors || searchErrors,
-    trustBreakdown,
+    trustBreakdown: verdictBreakdown,
   }
 }
 
 function aggregateVerdict(claimResults = []) {
-  const order = { FALSE: 4, MISLEADING: 3, UNVERIFIED: 2, TRUE: 1 }
-  return claimResults.map((item) => item.verdict).sort((a, b) => (order[b] || 0) - (order[a] || 0))[0] || "UNVERIFIED"
+  const verdicts = claimResults.map((item) => item.verdict)
+  const hasTrue = verdicts.includes("TRUE")
+  const hasFalse = verdicts.includes("FALSE") || verdicts.includes("RISKY")
+  const hasMixed = verdicts.includes("MISLEADING") || verdicts.includes("MANIPULATIVE")
+  if ((hasTrue && hasFalse) || hasMixed) return "MISLEADING"
+  if (hasFalse) return "FALSE"
+  if (hasTrue && verdicts.every((verdict) => verdict === "TRUE")) return "TRUE"
+  if (hasTrue) return "MISLEADING"
+  return "UNVERIFIED"
 }
 
 function aggregateTrustBreakdown(claimResults = []) {
@@ -1111,8 +1135,8 @@ export async function createVerificationResult(payload = {}) {
   }
 
   const primary = claimResults[0]
-  const trustBreakdown = aggregateTrustBreakdown(claimResults)
   const verdict = aggregateVerdict(claimResults)
+  const trustBreakdown = applyVerdictScore(verdict, aggregateTrustBreakdown(claimResults))
   const evidenceItems = uniqueEvidence(claimResults)
   const searchErrors = claimResults.flatMap((item) => item.searchErrors || [])
 
@@ -1136,7 +1160,7 @@ export async function createVerificationResult(payload = {}) {
     })),
     meaning: aggregateMeaning(claimResults, verdict, primary, language),
     evidence: evidenceItems,
-    recommendation: primary.recommendation,
+    recommendation: recommendationForVerdict(verdict, language),
     transcript: payload.content?.transcript || "",
     linkContext,
     timeline: inputType === "video" ? buildClaimTimeline(claims, claimResults) : undefined,

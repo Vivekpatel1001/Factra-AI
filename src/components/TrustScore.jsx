@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react"
 import { useApp } from "../context/AppContext.jsx"
 
-// Circular trust score from 0 to 100. Color follows the score band.
-export default function TrustScore({ score = 0 }) {
+// Circular trust score from 0 to 100. Verdict wins over raw confidence so the UI cannot show a false claim as trustworthy.
+function displayScoreForVerdict(verdict, score) {
+  if (verdict === "FALSE" || verdict === "RISKY") return 0
+  if (verdict === "MISLEADING" || verdict === "MANIPULATIVE") return 50
+  return Math.max(0, Math.min(100, Math.round(Number(score) || 0)))
+}
+
+export default function TrustScore({ score = 0, verdict }) {
   const { t } = useApp()
   const [shown, setShown] = useState(0)
+  const displayScore = displayScoreForVerdict(verdict, score)
 
   useEffect(() => {
     let frame
@@ -12,17 +19,17 @@ export default function TrustScore({ score = 0 }) {
     const duration = 900
     const tick = (now) => {
       const p = Math.min((now - start) / duration, 1)
-      setShown(Math.round(p * score))
+      setShown(Math.round(p * displayScore))
       if (p < 1) frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [score])
+  }, [displayScore])
 
   const color =
-    score >= 70
+    displayScore >= 70
       ? "var(--color-true)"
-      : score >= 40
+      : displayScore >= 40
         ? "var(--color-misleading)"
         : "var(--color-false)"
 
@@ -30,7 +37,7 @@ export default function TrustScore({ score = 0 }) {
   const circumference = 2 * Math.PI * radius
   const offset = circumference - (shown / 100) * circumference
 
-  const band = score >= 70 ? t("trust_band_high") : score >= 40 ? t("trust_band_mid") : t("trust_band_low")
+  const band = displayScore >= 70 ? t("trust_band_high") : displayScore >= 40 ? t("trust_band_mid") : t("trust_band_low")
 
   return (
     <div className="flex flex-col items-center">

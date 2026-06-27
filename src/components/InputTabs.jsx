@@ -18,6 +18,9 @@ import VoiceButton from "./VoiceButton.jsx"
 import { extractVideoContent, extractVideoLinkContent } from "../lib/api.js"
 import { useApp } from "../context/AppContext.jsx"
 
+const TESSERACT_BASE_URL = `${import.meta.env.BASE_URL || "/"}tesseract/`.replace(/\/+/g, "/")
+const TESSDATA_URL = `${import.meta.env.BASE_URL || "/"}tessdata`.replace(/\/+/g, "/")
+
 const canvasToBlob = (canvas) =>
   new Promise((resolve, reject) => {
     canvas.toBlob((value) => {
@@ -418,7 +421,9 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
           const regionBlob = await canvasToBlob(item.canvas)
           const stepCount = recognitionLanguages.length * modes.length * canvases.length
           const options = {
-            langPath: "/tessdata",
+            workerPath: `${TESSERACT_BASE_URL}worker.min.js`,
+            corePath: `${TESSERACT_BASE_URL}tesseract-core-lstm.wasm.js`,
+            langPath: TESSDATA_URL,
             tessedit_pageseg_mode: mode,
             tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
             preserve_interword_spaces: "1",
@@ -457,7 +462,8 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     resetOcrState()
     setOcrStatus("reading")
     try {
-      const Tesseract = (await import("tesseract.js")).default
+      const tesseractModule = await import("tesseract.js")
+      const Tesseract = tesseractModule.default || tesseractModule
       const preparedImage = await preprocessImage(file)
       const regions = getOcrRegions(preparedImage, ocrLayout)
       setOcrPreview(preparedImage)

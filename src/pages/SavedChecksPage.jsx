@@ -122,7 +122,7 @@ export default function SavedChecksPage() {
                   <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">{result.meaning}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <TrustScore score={result.trustScore || 0} />
+                  <TrustScore score={result.trustScore || 0} verdict={result.verdict} />
                   <Button variant="secondary" onClick={() => navigate("/verify", { state: { savedResult: result } })}>
                     View
                   </Button>

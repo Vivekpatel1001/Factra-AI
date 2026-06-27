@@ -459,9 +459,6 @@ server.post("/api/video/extract", videoLimiter, validateBody(videoExtractSchema)
 })
 server.post("/api/verify", verifyLimiter, validateBody(verifySchema), async (req, res) => {
   try {
-    if (req.validatedBody.type === "image" && Number(req.validatedBody.content?.ocrConfidence) < 45) {
-      return json(res, 400, { error: "OCR confidence is low. Please correct extracted text before generating a report." })
-    }
     const result = await createVerificationResult(req.validatedBody)
     const token = getRequestToken(req)
     const user = token ? await getUserFromToken(token) : null
