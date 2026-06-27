@@ -8,7 +8,7 @@ import { useApp } from "../context/AppContext.jsx"
 
 export default function VerifyPage() {
   const location = useLocation()
-  const { isAuthenticated } = useApp()
+  const { isAuthenticated, t } = useApp()
   const initialTab = location.state?.tab || "text"
 
   const [stage, setStage] = useState("input") // input | loading | result
@@ -34,7 +34,7 @@ export default function VerifyPage() {
       setResult(data.result)
       setStage("result")
     } catch (err) {
-      setError(err.message || "Verification failed. Please try again.")
+      setError(err.message || t("verify_failed"))
       setStage("input")
     }
   }
@@ -56,7 +56,7 @@ export default function VerifyPage() {
       {stage === "input" && <>
           {!isAuthenticated && (
             <div className="mb-6 rounded-2xl border border-border bg-primary-soft px-5 py-4 text-sm font-semibold text-primary">
-              Log in or create an account before checking if you want this result saved in your history.
+              {t("verify_login_save_prompt")}
             </div>
           )}
           <VerifyDashboard initialTab={initialTab} onCheck={handleCheck} />

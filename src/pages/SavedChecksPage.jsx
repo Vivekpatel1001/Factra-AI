@@ -29,7 +29,7 @@ export default function SavedChecksPage() {
         const data = await getReports()
         if (active) setReports(data.reports || [])
       } catch (err) {
-        if (active) setError(err.message || "Could not load saved checks.")
+        if (active) setError(err.message || t("saved_load_error"))
       } finally {
         if (active) setLoading(false)
       }
@@ -47,7 +47,7 @@ export default function SavedChecksPage() {
       await deleteReport(reportId)
       setReports((current) => current.filter((report) => report.id !== reportId))
     } catch (err) {
-      setError(err.message || "Could not delete this report.")
+      setError(err.message || t("saved_delete_error"))
     } finally {
       setDeletingId("")
     }
@@ -60,13 +60,13 @@ export default function SavedChecksPage() {
           <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-soft text-primary">
             <LogIn className="h-7 w-7" />
           </span>
-          <h1 className="mt-5 font-display text-3xl font-extrabold">Log in to save your checks</h1>
+          <h1 className="mt-5 font-display text-3xl font-extrabold">{t("saved_login_title")}</h1>
           <p className="mx-auto mt-3 max-w-xl text-lg leading-relaxed text-muted-foreground">
-            Create an account or log in before checking a claim. Factra will save your verdicts, evidence, and reports here.
+            {t("saved_login_desc")}
           </p>
           <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-            <Button size="lg" onClick={() => navigate("/login")}>Log in</Button>
-            <Button variant="secondary" size="lg" onClick={() => navigate("/signup")}>Create account</Button>
+            <Button size="lg" onClick={() => navigate("/login")}>{t("login")}</Button>
+            <Button variant="secondary" size="lg" onClick={() => navigate("/signup")}>{t("create_account")}</Button>
           </div>
         </Card>
       </div>
@@ -77,16 +77,16 @@ export default function SavedChecksPage() {
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="font-display text-4xl font-extrabold">Saved checks</h1>
-          <p className="mt-2 text-lg text-muted-foreground">Your saved fact-check history and evidence reports.</p>
+          <h1 className="font-display text-4xl font-extrabold">{t("saved_title")}</h1>
+          <p className="mt-2 text-lg text-muted-foreground">{t("saved_desc")}</p>
         </div>
         <Button onClick={() => navigate("/verify")}>
-          Check another <ArrowRight className="h-5 w-5" />
+          {t("saved_check_another")} <ArrowRight className="h-5 w-5" />
         </Button>
       </div>
 
       {loading && (
-        <Card className="mt-8 p-6 text-center text-muted-foreground">Loading saved checks...</Card>
+        <Card className="mt-8 p-6 text-center text-muted-foreground">{t("saved_loading")}</Card>
       )}
 
       {error && (
@@ -98,9 +98,9 @@ export default function SavedChecksPage() {
       {!loading && !error && reports.length === 0 && (
         <Card className="mt-8 p-8 text-center">
           <FileText className="mx-auto h-10 w-10 text-primary" />
-          <h2 className="mt-3 font-display text-2xl font-bold">No saved checks yet</h2>
-          <p className="mt-2 text-muted-foreground">Run a check while logged in and it will appear here.</p>
-          <Button className="mt-5" onClick={() => navigate("/verify")}>Start checking</Button>
+          <h2 className="mt-3 font-display text-2xl font-bold">{t("saved_empty_title")}</h2>
+          <p className="mt-2 text-muted-foreground">{t("saved_empty_desc")}</p>
+          <Button className="mt-5" onClick={() => navigate("/verify")}>{t("saved_start")}</Button>
         </Card>
       )}
 
@@ -128,7 +128,7 @@ export default function SavedChecksPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    aria-label="Delete report"
+                    aria-label={t("saved_delete")}
                     onClick={() => handleDelete(report.id)}
                     disabled={deletingId === report.id}
                   >
@@ -142,8 +142,8 @@ export default function SavedChecksPage() {
       </div>
 
       <div className="mt-8 rounded-2xl border border-border bg-background p-5 text-sm leading-relaxed text-muted-foreground">
-        <p className="font-semibold text-foreground">How saving works</p>
-        <p className="mt-1">When you are logged in, each verification is saved with its claim, verdict, trust score, evidence, and generated report data.</p>
+        <p className="font-semibold text-foreground">{t("saved_how_title")}</p>
+        <p className="mt-1">{t("saved_how_desc")}</p>
       </div>
     </div>
   )

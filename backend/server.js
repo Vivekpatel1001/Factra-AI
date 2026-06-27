@@ -271,10 +271,38 @@ server.use(cors({
 }))
 server.use(express.json({ limit: "26mb", strict: true }))
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false })
-const verifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false })
-const videoLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false })
-const reportLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false })
+const rateLimitJsonHandler = (message) => (req, res) => {
+  audit("rate_limited", { path: req.path, ip: req.ip })
+  return json(res, 429, { error: message })
+}
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.AUTH_RATE_LIMIT || 50),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitJsonHandler("Too many login/signup attempts. Please wait a few minutes and try again."),
+})
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitJsonHandler("Too many verification requests. Please wait a few minutes and try again."),
+})
+const videoLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitJsonHandler("Too many video extraction requests. Please wait and try again."),
+})
+const reportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitJsonHandler("Too many report requests. Please wait a few minutes and try again."),
+})
 
 server.get("/api/health", async (req, res) => {
   json(res, 200, {
@@ -312,8 +340,8 @@ server.post("/api/auth/signup", authLimiter, validateBody(signupSchema), async (
         console.warn(`Supabase Auth user creation failed. Custom app_users row was saved: ${error.message}`)
       }
     } catch (error) {
-      console.warn(`Supabase user insert failed: ${error.message}`)
-      return json(res, 502, { error: `Supabase user insert failed: ${error.message}` })
+      console.warn(`Supabase user insert failed, using local fallback: ${error.message}`)
+      users.set(email, user)
     }
   } else users.set(email, user)
 
@@ -324,8 +352,8 @@ server.post("/api/auth/signup", authLimiter, validateBody(signupSchema), async (
     try {
       await insertSupabaseSession(tokenHash, user, expiresAt)
     } catch (error) {
-      console.warn(`Supabase session insert failed: ${error.message}`)
-      return json(res, 502, { error: `Supabase session insert failed: ${error.message}` })
+      console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
+      sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
     }
   } else sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
   setSessionCookie(res, token)
@@ -350,8 +378,8 @@ server.post("/api/auth/login", authLimiter, validateBody(authSchema), async (req
     try {
       await insertSupabaseSession(tokenHash, user, expiresAt)
     } catch (error) {
-      console.warn(`Supabase session insert failed: ${error.message}`)
-      return json(res, 502, { error: `Supabase session insert failed: ${error.message}` })
+      console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
+      sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
     }
   } else sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
   setSessionCookie(res, token)

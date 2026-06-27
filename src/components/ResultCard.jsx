@@ -15,11 +15,11 @@ export default function ResultCard({ result, onReset }) {
   const trustBreakdown = result.trustBreakdown
   const trustMetrics = trustBreakdown
     ? [
-        ["Evidence quality", trustBreakdown.evidenceQuality],
-        ["Recency", trustBreakdown.recency],
-        ["Source reliability", trustBreakdown.sourceReliability],
-        ["Claim clarity", trustBreakdown.claimClarity],
-        ["Confidence", trustBreakdown.confidence],
+        [t("trust_evidence_quality"), trustBreakdown.evidenceQuality],
+        [t("trust_recency"), trustBreakdown.recency],
+        [t("trust_source_reliability"), trustBreakdown.sourceReliability],
+        [t("trust_claim_clarity"), trustBreakdown.claimClarity],
+        [t("trust_confidence"), trustBreakdown.confidence],
       ]
     : []
   const extractedClaims = Array.isArray(result.claims) ? result.claims : []
@@ -48,7 +48,7 @@ export default function ResultCard({ result, onReset }) {
 
     doc.setFillColor(245, 248, 255)
     doc.rect(0, 0, doc.internal.pageSize.getWidth(), 112, "F")
-    addText("Factra AI Verification Report", 20, "bold", [21, 78, 138])
+    addText(t("report_title"), 20, "bold", [21, 78, 138])
     addText(`${t("verdict_label")}: ${v.label}    ${t("trust_score")}: ${result.trustScore}/100`, 13, "bold", [20, 120, 80])
     y = 138
 
@@ -58,12 +58,12 @@ export default function ResultCard({ result, onReset }) {
     addText(result.meaning, 11)
 
     if (trustMetrics.length) {
-      addText("Trust score breakdown", 14, "bold", [21, 78, 138])
+      addText(t("trust_breakdown"), 14, "bold", [21, 78, 138])
       trustMetrics.forEach(([label, value]) => addText(`${label}: ${value}/100`, 10))
     }
 
     if (extractedClaims.length > 1) {
-      addText("Extracted checkable claims", 14, "bold", [21, 78, 138])
+      addText(t("extracted_claims"), 14, "bold", [21, 78, 138])
       extractedClaims.forEach((item, index) => {
         const verdict = getVerdict(item.verdict, t)
         addText(`${index + 1}. ${item.text}`, 10, "bold")
@@ -79,12 +79,12 @@ export default function ResultCard({ result, onReset }) {
     addText(t("why_say"), 14, "bold", [21, 78, 138])
     result.evidence.forEach((item, index) => {
       addText(`${index + 1}. ${item.source}`, 11, "bold")
-      addText(`${item.explanation}${item.link && item.link !== "#" ? `\nSource: ${item.link}` : ""}`, 10)
+      addText(`${item.explanation}${item.link && item.link !== "#" ? `\n${t("source_label")}: ${item.link}` : ""}`, 10)
     })
 
     addText(t("recommend"), 14, "bold", [21, 78, 138])
     addText(result.recommendation, 11)
-    addText(`Generated: ${new Date().toLocaleString()}`, 9, "normal", [95, 95, 95])
+    addText(`${t("generated_label")}: ${new Date().toLocaleString()}`, 9, "normal", [95, 95, 95])
 
     doc.save("factra-ai-report.pdf")
   }
@@ -138,7 +138,7 @@ export default function ResultCard({ result, onReset }) {
           </div>
           {!!trustMetrics.length && (
             <div className="mt-8">
-              <h3 className="font-display text-xl font-bold">Trust score breakdown</h3>
+              <h3 className="font-display text-xl font-bold">{t("trust_breakdown")}</h3>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {trustMetrics.map(([label, value]) => (
                   <div key={label} className="rounded-2xl border border-border bg-background p-4">
@@ -157,7 +157,7 @@ export default function ResultCard({ result, onReset }) {
 
           {extractedClaims.length > 1 && (
             <div className="mt-8">
-              <h3 className="font-display text-xl font-bold">Extracted checkable claims</h3>
+              <h3 className="font-display text-xl font-bold">{t("extracted_claims")}</h3>
               <div className="mt-3 grid gap-3">
                 {extractedClaims.map((item) => {
                   const claimVerdict = getVerdict(item.verdict, t)
@@ -197,17 +197,17 @@ export default function ResultCard({ result, onReset }) {
           {result.retrieval && (
             <div className="mt-8 rounded-2xl border border-border bg-background p-5">
               <h3 className="flex items-center gap-2 font-display text-xl font-bold">
-                <Database className="h-6 w-6 text-primary" /> Evidence pipeline
+                <Database className="h-6 w-6 text-primary" /> {t("evidence_pipeline")}
               </h3>
               <div className="mt-3 grid gap-3 text-sm font-semibold text-muted-foreground sm:grid-cols-3">
                 <span className="rounded-2xl bg-card px-4 py-3">{result.retrieval.engine}</span>
                 <span className="rounded-2xl bg-card px-4 py-3">{result.retrieval.vectorIndex}</span>
-                <span className="rounded-2xl bg-card px-4 py-3">Model: {result.retrieval.model}</span>
+                <span className="rounded-2xl bg-card px-4 py-3">{t("model_label")}: {result.retrieval.model}</span>
               </div>
               {!!result.retrieval.searchErrors?.length && (
                 <div className="mt-3 rounded-2xl bg-[var(--color-misleading-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-misleading)]">
                   <span className="inline-flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4" /> Some providers failed, so the result used the available evidence and fallback handling.
+                    <AlertCircle className="h-4 w-4" /> {t("provider_fallback_notice")}
                   </span>
                 </div>
               )}

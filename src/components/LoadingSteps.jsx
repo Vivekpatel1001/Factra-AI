@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { BookOpen, Search, ShieldCheck, Sparkles, Check, Loader2 } from "lucide-react"
+import { BookOpen, Search, ShieldCheck, Sparkles, Check, Loader2, Timer } from "lucide-react"
 import Card from "./ui/Card.jsx"
 import { useApp } from "../context/AppContext.jsx"
 
@@ -12,17 +12,11 @@ const steps = [
   { id: "result", labelKey: "loading_result", icon: "Sparkles" },
 ]
 
-const videoSteps = [
-  { id: "read", label: "Reading transcript and visible text", icon: "BookOpen" },
-  { id: "claims", label: "Finding the main checkable claim", icon: "Search" },
-  { id: "sources", label: "Checking fast evidence sources", icon: "ShieldCheck" },
-  { id: "result", label: "Preparing verdict and trust score", icon: "Sparkles" },
-]
-
 export default function LoadingSteps({ onDone, type = "text" }) {
   const { t } = useApp()
   const [current, setCurrent] = useState(0)
-  const activeSteps = type === "video" ? videoSteps : steps
+  const [elapsed, setElapsed] = useState(0)
+  const activeSteps = steps
 
   useEffect(() => {
     if (current >= activeSteps.length) {
@@ -35,6 +29,11 @@ export default function LoadingSteps({ onDone, type = "text" }) {
     return () => clearTimeout(timer)
   }, [current, onDone, activeSteps.length, type])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   const progress = Math.min(((current + 1) / activeSteps.length) * 92, 92)
 
   return (
@@ -43,6 +42,10 @@ export default function LoadingSteps({ onDone, type = "text" }) {
       <Card className="relative mx-auto w-full max-w-xl overflow-hidden p-6 text-center animate-float-up sm:p-10">
         <div className="absolute left-0 top-0 h-1 w-full overflow-hidden bg-muted">
           <span className="loader-sweep block h-full w-1/3 rounded-full bg-primary" />
+        </div>
+
+        <div className="absolute right-5 top-5 inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-sm font-bold text-muted-foreground">
+          <Timer className="h-4 w-4" /> {elapsed}s
         </div>
 
         <div className="relative mx-auto flex h-32 w-32 items-center justify-center">

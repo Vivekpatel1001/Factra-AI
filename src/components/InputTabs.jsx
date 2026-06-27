@@ -369,7 +369,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     hin: t("ocr_lang_hindi"),
     guj: t("ocr_lang_gujarati"),
     mixed: t("ocr_lang_mixed"),
-    unknown: "Unknown",
+    unknown: t("ocr_lang_unknown"),
   }
 
   useEffect(() => {
@@ -494,7 +494,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
 
     try {
       if (file.size > 24 * 1024 * 1024) {
-        throw new Error("This video is too large for direct upload extraction. Paste the YouTube, Facebook, Instagram, or source link below so Factra can search the public context and process the main claim.")
+        throw new Error(t("video_large_direct_upload"))
       }
       const data = await fileToBase64(file)
       const extraction = await extractVideoContent({ fileName: file.name, mimeType: file.type || "video/mp4", data })
@@ -505,10 +505,10 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
       const extractedText = parts.join("\n\n").trim()
       setVideoTranscript(extractedText)
       setVideoExtractionStatus(extractedText ? "done" : "empty")
-      if (!extractedText) setVideoExtractionError("No speech or visible text was detected. You can type the transcript manually.")
+      if (!extractedText) setVideoExtractionError(t("video_no_speech_text"))
     } catch (err) {
       setVideoExtractionStatus("error")
-      setVideoExtractionError(err.message || "Automatic video extraction failed. Please type the transcript manually.")
+      setVideoExtractionError(err.message || t("video_extract_failed"))
     }
   }
 
@@ -516,7 +516,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
   const handleVideoUrlExtraction = async () => {
     const url = videoUrl.trim()
     if (!url) {
-      setVideoExtractionError("Paste a public video link first.")
+      setVideoExtractionError(t("video_paste_link_first"))
       return ""
     }
 
@@ -531,11 +531,11 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
       const extractedText = parts.join("\n\n").trim()
       setVideoTranscript(extractedText)
       setVideoLinkStatus(extractedText ? "done" : "empty")
-      if (!extractedText) setVideoExtractionError(extraction.notes || "Could not find public context for this video. Paste the spoken words or upload a shorter clip.")
+      if (!extractedText) setVideoExtractionError(extraction.notes || t("video_no_public_context"))
       return extractedText
     } catch (err) {
       setVideoLinkStatus("error")
-      setVideoExtractionError(err.message || "Could not process this video link. Paste the spoken words or upload a shorter clip.")
+      setVideoExtractionError(err.message || t("video_link_failed"))
       return ""
     }
   }
@@ -545,9 +545,9 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     if (tab === "image" && !imageFile) return setError(t("error_image_required"))
     if (tab === "image" && ocrStatus === "reading") return setError(t("error_ocr_wait"))
     if (tab === "image" && !ocrText.trim()) return setError(t("error_ocr_required"))
-    if (tab === "image" && ocrConfidence !== null && ocrConfidence < 45) return setError("OCR confidence is low. Please correct the extracted text manually before generating a report.")
-    if (tab === "video" && !videoFile && !videoUrl.trim()) return setError("Please upload a video or paste a public video link first.")
-    if (tab === "video" && (videoExtractionStatus === "reading" || videoLinkStatus === "reading")) return setError("Please wait while we extract video text/context.")
+    if (tab === "image" && ocrConfidence !== null && ocrConfidence < 45) return setError(t("ocr_low_confidence_error"))
+    if (tab === "video" && !videoFile && !videoUrl.trim()) return setError(t("video_need_upload_or_link"))
+    if (tab === "video" && (videoExtractionStatus === "reading" || videoLinkStatus === "reading")) return setError(t("video_wait_extracting"))
     if (tab === "video" && videoUrl.trim() && !videoTranscript.trim()) {
       const extracted = await handleVideoUrlExtraction()
       if (!extracted.trim()) return setError(t("error_transcript_required"))
@@ -654,14 +654,14 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 onChange={(e) => setOcrLanguage(e.target.value)}
                 className="rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
               >
-                <option value="auto">Auto detect</option>
+                <option value="auto">{t("ocr_auto_detect")}</option>
                 <option value="eng">{t("ocr_lang_english")}</option>
                 <option value="hin">{t("ocr_lang_hindi")}</option>
                 <option value="guj">{t("ocr_lang_gujarati")}</option>
                 <option value="eng+hin+guj">{t("ocr_lang_mixed")}</option>
               </select>
               <label htmlFor="ocr-layout" className="text-sm font-semibold text-muted-foreground">
-                OCR layout
+                {t("ocr_layout")}
               </label>
               <select
                 id="ocr-layout"
@@ -669,8 +669,8 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 onChange={(e) => setOcrLayout(e.target.value)}
                 className="rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
               >
-                <option value="auto">Auto page</option>
-                <option value="newspaper">Newspaper columns</option>
+                <option value="auto">{t("ocr_layout_auto")}</option>
+                <option value="newspaper">{t("ocr_layout_newspaper")}</option>
               </select>
             </div>
             <UploadBox accept="image/*" icon={ImageIcon} onFile={handleImageFile} />
@@ -700,7 +700,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                   )}
                   {ocrStatus === "done" && ocrDetectedLanguage && (
                     <span className="rounded-full bg-card px-3 py-1 text-sm font-bold text-muted-foreground ring-1 ring-border">
-                      Detected: {ocrLanguageLabels[ocrDetectedLanguage] || ocrDetectedLanguage}
+                      {t("ocr_detected")}: {ocrLanguageLabels[ocrDetectedLanguage] || ocrDetectedLanguage}
                     </span>
                   )}
                 </div>
@@ -708,11 +708,11 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 {ocrPreview?.previewUrl && (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-card">
                     <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-bold text-muted-foreground">
-                      <ScanText className="h-4 w-4 text-primary" /> OCR detection boxes
+                      <ScanText className="h-4 w-4 text-primary" /> {t("ocr_detection_boxes")}
                     </div>
                     <div className="max-h-[520px] overflow-auto bg-black/5 p-3">
                       <div className="relative mx-auto max-w-full" style={{ aspectRatio: `${ocrPreview.width} / ${ocrPreview.height}` }}>
-                        <img src={ocrPreview.previewUrl} alt="OCR processed preview" className="absolute inset-0 h-full w-full object-contain" />
+                        <img src={ocrPreview.previewUrl} alt={t("ocr_processed_preview_alt")} className="absolute inset-0 h-full w-full object-contain" />
                         {ocrRegions.map((region) => (
                           <span
                             key={region.label}
@@ -792,7 +792,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 )}
                 {ocrStatus === "done" && (
                   <p className="mt-3 rounded-2xl bg-[var(--color-true-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-true)]">
-                    Text extracted with detection boxes. Review and correct the text before checking, especially for low-quality images.
+                    {t("ocr_done_with_boxes")}
                   </p>
                 )}
               </div>
@@ -827,9 +827,9 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
                 </div>
                                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                   {videoExtractionStatus === "reading"
-                    ? "Automatically extracting speech and visible text from the uploaded video..."
+                    ? t("video_extracting_status")
                     : videoExtractionStatus === "done"
-                      ? "Automatic extraction finished. Review and edit the text before checking."
+                      ? t("video_extraction_done")
                       : t("transcript_help")}
                 </p>
                 {videoExtractionStatus === "reading" && (

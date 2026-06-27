@@ -15,7 +15,7 @@ export default function Navbar() {
     { to: "/verify", label: t("nav_verify") },
     { to: "/how-it-works", label: t("nav_how") },
     { to: "/about", label: t("nav_about") },
-    ...(isAuthenticated ? [{ to: "/saved", label: "Saved" }] : []),
+    ...(isAuthenticated ? [{ to: "/saved", label: t("nav_saved") }] : []),
   ]
 
   const linkClass = ({ isActive }) =>
@@ -77,21 +77,21 @@ export default function Navbar() {
 
           {isAuthenticated ? (
             <>
-              <Button className="hidden sm:inline-flex" variant="secondary" onClick={() => navigate("/saved")}>Saved</Button>
+              <Button className="hidden sm:inline-flex" variant="secondary" onClick={() => navigate("/saved")}>{t("nav_saved")}</Button>
               <button
                 type="button"
                 onClick={handleLogout}
-                title={`Signed in as ${user?.name || user?.email}`}
+                title={`${t("signed_in_as")} ${user?.name || user?.email}`}
                 className="hidden h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground sm:flex"
               >
                 <LogOut className="h-5 w-5" />
-                <span className="sr-only">Log out</span>
+                <span className="sr-only">{t("logout")}</span>
               </button>
             </>
           ) : (
             <>
-              <Button className="hidden sm:inline-flex" variant="secondary" onClick={() => navigate("/login")}>Log in</Button>
-              <Button className="hidden sm:inline-flex" onClick={() => navigate("/signup")}>Sign up</Button>
+              <Button className="hidden sm:inline-flex" variant="secondary" onClick={() => navigate("/login")}>{t("login")}</Button>
+              <Button className="hidden sm:inline-flex" onClick={() => navigate("/signup")}>{t("signup")}</Button>
             </>
           )}
 
@@ -139,11 +139,11 @@ export default function Navbar() {
             </button>
           </div>
           {isAuthenticated ? (
-            <Button className="mt-4 w-full" variant="secondary" size="lg" onClick={handleLogout}>Log out</Button>
+            <Button className="mt-4 w-full" variant="secondary" size="lg" onClick={handleLogout}>{t("logout")}</Button>
           ) : (
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <Button variant="secondary" size="lg" onClick={() => { setOpen(false); navigate("/login") }}>Log in</Button>
-              <Button size="lg" onClick={() => { setOpen(false); navigate("/signup") }}>Sign up</Button>
+              <Button variant="secondary" size="lg" onClick={() => { setOpen(false); navigate("/login") }}>{t("login")}</Button>
+              <Button size="lg" onClick={() => { setOpen(false); navigate("/signup") }}>{t("signup")}</Button>
             </div>
           )}
           <Button className="mt-4 w-full" size="lg" onClick={() => { setOpen(false); navigate("/verify") }}>
