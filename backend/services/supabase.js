@@ -141,24 +141,33 @@ export async function insertUser(user) {
   return rows?.[0] || null
 }
 
-export async function insertSession(token, user) {
-  await supabaseFetch("app_sessions", {
-    method: "POST",
-    body: JSON.stringify({ token, user_id: user.id, email: user.email }),
-  })
+export async function insertSession(tokenHash, user, expiresAt) {
+  try {
+    await supabaseFetch("app_sessions", {
+      method: "POST",
+      body: JSON.stringify({ token: tokenHash, user_id: user.id, email: user.email, expires_at: expiresAt }),
+    })
+  } catch (error) {
+    if (!/expires_at/i.test(error.message)) throw error
+    await supabaseFetch("app_sessions", {
+      method: "POST",
+      body: JSON.stringify({ token: tokenHash, user_id: user.id, email: user.email }),
+    })
+  }
 }
 
-export async function deleteSession(token) {
-  await supabaseFetch(`app_sessions?token=eq.${encodeURIComponent(token)}`, { method: "DELETE" })
+export async function deleteSession(tokenHash) {
+  await supabaseFetch(`app_sessions?token=eq.${encodeURIComponent(tokenHash)}`, { method: "DELETE" })
 }
 
-export async function findSession(token) {
-  const query = new URLSearchParams({ token: `eq.${token}`, select: "*,app_users(*)", limit: "1" })
+export async function findSession(tokenHash) {
+  const query = new URLSearchParams({ token: `eq.${tokenHash}`, select: "*,app_users(*)", limit: "1" })
   const rows = await supabaseFetch(`app_sessions?${query}`)
   const session = rows?.[0]
   if (!session) return null
   return {
     email: session.email,
+    expiresAt: session.expires_at,
     user: session.app_users
       ? {
           id: session.app_users.id,
@@ -200,4 +209,8 @@ export async function listReportsForUser(userId) {
     createdAt: row.created_at,
     result: row.result,
   }))
+}
+
+export async function deleteReportForUser(reportId, userId) {
+  await supabaseFetch(`verification_reports?id=eq.${encodeURIComponent(reportId)}&user_id=eq.${encodeURIComponent(userId)}`, { method: "DELETE" })
 }

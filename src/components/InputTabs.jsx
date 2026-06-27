@@ -557,20 +557,23 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     setError("")
     const finalText = tab === "image" ? ocrText.trim() : tab === "video" ? videoTranscript.trim() : text.trim()
 
+    const content = { text: finalText }
+    if (tab === "link") content.link = link.trim()
+    if (tab === "video") {
+      content.transcript = videoTranscript.trim()
+      content.videoUrl = videoUrl.trim()
+      content.keywords = extractKeywords(videoTranscript)
+      content.fileName = videoFile?.name || videoUrl.trim()
+    }
+    if (tab === "image") {
+      content.fileName = imageFile?.name || ""
+      content.ocr = { confidence: ocrConfidence, language: ocrLanguage, layout: ocrLayout, words: ocrWords }
+      content.ocrConfidence = ocrConfidence
+    }
+
     onCheck?.({
       type: tab,
-      content: {
-        text: finalText,
-        link: link.trim(),
-        transcript: videoTranscript.trim(),
-        videoUrl: videoUrl.trim(),
-        keywords: tab === "video" ? extractKeywords(videoTranscript) : [],
-        fileName: tab === "image" ? imageFile?.name : tab === "video" ? videoFile?.name || videoUrl.trim() : "",
-        ocr:
-          tab === "image"
-            ? { confidence: ocrConfidence, language: ocrLanguage, layout: ocrLayout, words: ocrWords }
-            : undefined,
-      },
+      content,
     })
   }
 

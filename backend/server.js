@@ -3,12 +3,17 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import express from "express"
+import cors from "cors"
+import helmet from "helmet"
+import rateLimit from "express-rate-limit"
+import { z } from "zod"
 import next from "next"
 import { createVerificationResult, extractVideoLinkContext, extractVideoTextWithGemini } from "./services/verification.js"
 import {
   checkSupabaseConnection,
   createAuthUser as createSupabaseAuthUser,
   deleteSession as deleteSupabaseSession,
+  deleteReportForUser as deleteSupabaseReportForUser,
   findSession as findSupabaseSession,
   findUserByEmail as findSupabaseUserByEmail,
   insertReport as insertSupabaseReport,
@@ -36,6 +41,11 @@ const loadLocalEnv = () => {
 }
 
 loadLocalEnv()
+for (const key of Object.keys(process.env)) {
+  if (/^VITE_.*(KEY|SECRET|TOKEN|SERVICE_ROLE)/i.test(key)) {
+    console.warn(`Security warning: ${key} is frontend-exposed by convention. Move this secret to a backend-only env var.`)
+  }
+}
 const dev = process.env.NODE_ENV !== "production"
 const port = Number(process.env.BACKEND_PORT || 4000)
 const frontendOrigin = process.env.FRONTEND_ORIGIN || "http://127.0.0.1:5173"
@@ -46,8 +56,40 @@ const handle = app.getRequestHandler()
 const users = new Map()
 const sessions = new Map()
 const reports = []
+const SESSION_COOKIE = "factra_session"
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7
+const MAX_TEXT_LENGTH = 12000
+const MAX_LINK_LENGTH = 2048
+const MAX_VIDEO_BYTES = 24 * 1024 * 1024
+const SAFE_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-matroska", "audio/mpeg", "audio/wav", "audio/webm", "audio/mp4"])
 
 const json = (res, status, body) => res.status(status).json(body)
+const audit = (event, details = {}) => {
+  const safeDetails = Object.fromEntries(Object.entries(details).filter(([key]) => !/password|token|key|secret/i.test(key)))
+  console.info(JSON.stringify({ type: "audit", event, at: new Date().toISOString(), ...safeDetails }))
+}
+const hashSessionToken = (token) => crypto.createHash("sha256").update(String(token)).digest("hex")
+const sessionExpiry = () => new Date(Date.now() + SESSION_TTL_MS).toISOString()
+const isExpired = (iso) => iso && new Date(iso).getTime() <= Date.now()
+const parseCookies = (header = "") => Object.fromEntries(String(header).split(";").map((part) => {
+  const index = part.indexOf("=")
+  if (index === -1) return null
+  return [decodeURIComponent(part.slice(0, index).trim()), decodeURIComponent(part.slice(index + 1).trim())]
+}).filter(Boolean))
+const getRequestToken = (req) => req.headers.authorization?.replace(/^Bearer\s+/i, "") || parseCookies(req.headers.cookie)[SESSION_COOKIE] || ""
+const setSessionCookie = (res, token) => {
+  const secure = process.env.NODE_ENV === "production"
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    maxAge: SESSION_TTL_MS,
+    path: "/",
+  })
+}
+const clearSessionCookie = (res) => {
+  res.clearCookie(SESSION_COOKIE, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" })
+}
 
 function publicErrorMessage(error, fallback = "Request failed.") {
   const message = String(error?.message || error || "")
@@ -70,6 +112,66 @@ const verifyPassword = (password, saved) => {
   const [salt, hash] = saved.split(":")
   const attempt = hashPassword(password, salt).split(":")[1]
   return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(attempt, "hex"))
+}
+
+const authSchema = z.object({
+  email: z.string().email().max(254),
+  password: z.string().min(6).max(128),
+})
+const signupSchema = authSchema.extend({
+  name: z.string().trim().min(1).max(80),
+})
+const optionalUrlSchema = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().trim().url().max(MAX_LINK_LENGTH).refine((value) => /^https?:\/\//i.test(value), "Only http/https URLs are allowed.").optional(),
+)
+const linkSchema = z.string().trim().url().max(MAX_LINK_LENGTH).refine((value) => /^https?:\/\//i.test(value), "Only http/https URLs are allowed.")
+const verifySchema = z.object({
+  type: z.enum(["text", "link", "image", "video"]).default("text"),
+  language: z.string().trim().min(2).max(8).default("en"),
+  content: z.object({
+    text: z.string().max(MAX_TEXT_LENGTH).optional(),
+    transcript: z.string().max(MAX_TEXT_LENGTH).optional(),
+    link: optionalUrlSchema,
+    videoUrl: optionalUrlSchema,
+    fileName: z.string().max(180).optional(),
+    keywords: z.array(z.string().trim().max(80)).max(20).optional(),
+    ocrConfidence: z.number().min(0).max(100).optional(),
+  }).default({}),
+})
+const videoExtractSchema = z.object({
+  fileName: z.string().trim().min(1).max(180).default("video"),
+  mimeType: z.string().trim().min(1).max(80).refine((value) => SAFE_VIDEO_MIME_TYPES.has(value), "Unsupported video/audio file type."),
+  data: z.string().min(1),
+}).superRefine((value, ctx) => {
+  const approxBytes = Math.ceil(value.data.length * 0.75)
+  if (approxBytes > MAX_VIDEO_BYTES) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["data"], message: "Video/audio file is too large. Maximum size is 24MB." })
+  }
+})
+const videoLinkSchema = z.object({ url: linkSchema })
+
+const validateBody = (schema) => (req, res, nextMiddleware) => {
+  const parsed = schema.safeParse(req.body || {})
+  if (!parsed.success) {
+    audit("validation_failed", { path: req.path, ip: req.ip })
+    return json(res, 400, { error: parsed.error.issues[0]?.message || "Invalid request body." })
+  }
+  req.validatedBody = parsed.data
+  return nextMiddleware()
+}
+
+function maskPII(value) {
+  if (typeof value === "string") {
+    return value
+      .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
+      .replace(/\b(?:\+?91[-\s]?)?[6-9]\d{9}\b/g, "[phone]")
+      .replace(/\b\d{4}\s?\d{4}\s?\d{4}\b/g, "[id]")
+      .replace(/\b\d{6}\b/g, "[pin]")
+  }
+  if (Array.isArray(value)) return value.map(maskPII)
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskPII(item)]))
+  return value
 }
 
 const publicUser = (user) => ({
@@ -101,27 +203,35 @@ const getStoredUserByEmail = async (email) => {
 
 const getUserFromToken = async (token) => {
   if (!token) return null
+  const tokenHash = hashSessionToken(token)
   if (isSupabaseConfigured()) {
     try {
-      const session = await findSupabaseSession(token)
+      const session = await findSupabaseSession(tokenHash)
+      if (session && isExpired(session.expiresAt)) return null
       if (session?.user) return session.user
     } catch (error) {
       console.warn(`Supabase session lookup failed, using local fallback: ${error.message}`)
     }
   }
-  const session = sessions.get(token)
+  const session = sessions.get(tokenHash)
+  if (session && isExpired(session.expiresAt)) {
+    sessions.delete(tokenHash)
+    return null
+  }
   return session ? users.get(session.email) : null
 }
 const requireAuth = async (req, res, nextMiddleware) => {
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, "")
+  const token = getRequestToken(req)
   if (!token) return json(res, 401, { error: "Unauthorized" })
+  const tokenHash = hashSessionToken(token)
 
   if (isSupabaseConfigured()) {
     try {
-      const session = await findSupabaseSession(token)
+      const session = await findSupabaseSession(tokenHash)
+      if (session && isExpired(session.expiresAt)) return json(res, 401, { error: "Session expired. Please log in again." })
       if (session?.user) {
         req.user = session.user
-        req.token = token
+        req.token = tokenHash
         return nextMiddleware()
       }
     } catch (error) {
@@ -129,10 +239,14 @@ const requireAuth = async (req, res, nextMiddleware) => {
     }
   }
 
-  const session = sessions.get(token)
+  const session = sessions.get(tokenHash)
   if (!session) return json(res, 401, { error: "Unauthorized" })
+  if (isExpired(session.expiresAt)) {
+    sessions.delete(tokenHash)
+    return json(res, 401, { error: "Session expired. Please log in again." })
+  }
   req.user = users.get(session.email)
-  req.token = token
+  req.token = tokenHash
   return nextMiddleware()
 }
 
@@ -140,14 +254,27 @@ await app.prepare()
 
 const server = express()
 
-server.use(express.json({ limit: "35mb" }))
-server.use((req, res, nextMiddleware) => {
-  res.setHeader("Access-Control-Allow-Origin", frontendOrigin)
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-  if (req.method === "OPTIONS") return res.sendStatus(204)
-  return nextMiddleware()
-})
+server.set("trust proxy", "loopback")
+server.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}))
+server.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || origin === frontendOrigin || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) || /^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true)
+    audit("cors_blocked", { origin })
+    return callback(new Error("CORS origin is not allowed"))
+  },
+  credentials: true,
+  methods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}))
+server.use(express.json({ limit: "26mb", strict: true }))
+
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false })
+const verifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false })
+const videoLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false })
+const reportLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false })
 
 server.get("/api/health", async (req, res) => {
   json(res, 200, {
@@ -159,15 +286,13 @@ server.get("/api/health", async (req, res) => {
   })
 })
 
-server.post("/api/auth/signup", async (req, res) => {
-  const email = normalizeEmail(req.body.email)
-  const name = String(req.body.name || "").trim()
-  const password = String(req.body.password || "")
+server.post("/api/auth/signup", authLimiter, validateBody(signupSchema), async (req, res) => {
+  const email = normalizeEmail(req.validatedBody.email)
+  const name = req.validatedBody.name
+  const password = req.validatedBody.password
 
-  if (!name || !email || password.length < 6) {
-    return json(res, 400, { error: "Name, valid email, and 6+ character password are required." })
-  }
   if (await getStoredUserByEmail(email)) {
+    audit("signup_duplicate", { email })
     return json(res, 409, { error: "An account already exists for this email." })
   }
 
@@ -192,37 +317,46 @@ server.post("/api/auth/signup", async (req, res) => {
     }
   } else users.set(email, user)
 
-  const token = crypto.randomUUID()
+  const token = crypto.randomBytes(32).toString("base64url")
+  const tokenHash = hashSessionToken(token)
+  const expiresAt = sessionExpiry()
   if (isSupabaseConfigured()) {
     try {
-      await insertSupabaseSession(token, user)
+      await insertSupabaseSession(tokenHash, user, expiresAt)
     } catch (error) {
       console.warn(`Supabase session insert failed: ${error.message}`)
       return json(res, 502, { error: `Supabase session insert failed: ${error.message}` })
     }
-  } else sessions.set(token, { email, createdAt: new Date().toISOString() })
-  return json(res, 201, { token, user: publicUser(user) })
+  } else sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
+  setSessionCookie(res, token)
+  audit("signup_success", { userId: user.id, email })
+  return json(res, 201, { token: "cookie", user: publicUser(user) })
 })
 
-server.post("/api/auth/login", async (req, res) => {
-  const email = normalizeEmail(req.body.email)
-  const password = String(req.body.password || "")
+server.post("/api/auth/login", authLimiter, validateBody(authSchema), async (req, res) => {
+  const email = normalizeEmail(req.validatedBody.email)
+  const password = req.validatedBody.password
   const user = await getStoredUserByEmail(email)
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
+    audit("login_failed", { email })
     return json(res, 401, { error: "Invalid email or password." })
   }
 
-  const token = crypto.randomUUID()
+  const token = crypto.randomBytes(32).toString("base64url")
+  const tokenHash = hashSessionToken(token)
+  const expiresAt = sessionExpiry()
   if (isSupabaseConfigured()) {
     try {
-      await insertSupabaseSession(token, user)
+      await insertSupabaseSession(tokenHash, user, expiresAt)
     } catch (error) {
       console.warn(`Supabase session insert failed: ${error.message}`)
       return json(res, 502, { error: `Supabase session insert failed: ${error.message}` })
     }
-  } else sessions.set(token, { email, createdAt: new Date().toISOString() })
-  return json(res, 200, { token, user: publicUser(user) })
+  } else sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
+  setSessionCookie(res, token)
+  audit("login_success", { userId: user.id, email })
+  return json(res, 200, { token: "cookie", user: publicUser(user) })
 })
 
 server.post("/api/auth/logout", requireAuth, async (req, res) => {
@@ -234,6 +368,8 @@ server.post("/api/auth/logout", requireAuth, async (req, res) => {
     }
   }
   sessions.delete(req.token)
+  clearSessionCookie(res)
+  audit("logout", { userId: req.user?.id })
   return json(res, 200, { ok: true })
 })
 
@@ -241,7 +377,7 @@ server.get("/api/me", requireAuth, (req, res) => {
   return json(res, 200, { user: publicUser(req.user) })
 })
 
-server.get("/api/reports", requireAuth, async (req, res) => {
+server.get("/api/reports", reportLimiter, requireAuth, async (req, res) => {
   let userReports = reports.filter((report) => report.userId === req.user.id)
   if (isSupabaseConfigured()) {
     try {
@@ -253,34 +389,54 @@ server.get("/api/reports", requireAuth, async (req, res) => {
   return json(res, 200, { reports: userReports })
 })
 
+server.delete("/api/reports/:id", reportLimiter, requireAuth, async (req, res) => {
+  const reportId = String(req.params.id || "")
+  if (!/^[0-9a-f-]{36}$/i.test(reportId)) return json(res, 400, { error: "Invalid report id." })
+  const index = reports.findIndex((report) => report.id === reportId && report.userId === req.user.id)
+  if (index !== -1) reports.splice(index, 1)
+  if (isSupabaseConfigured()) {
+    try {
+      await deleteSupabaseReportForUser(reportId, req.user.id)
+    } catch (error) {
+      console.warn(`Supabase report delete failed: ${error.message}`)
+    }
+  }
+  audit("report_deleted", { reportId, userId: req.user.id })
+  return json(res, 200, { ok: true })
+})
 
 
-server.post("/api/video/link-extract", async (req, res) => {
-  const { url = "" } = req.body || {}
-  if (!url) return json(res, 400, { error: "Video URL is required." })
+
+server.post("/api/video/link-extract", videoLimiter, validateBody(videoLinkSchema), async (req, res) => {
+  const { url } = req.validatedBody
   try {
     const extraction = await extractVideoLinkContext({ url })
+    audit("video_link_extracted", { host: new URL(url).host })
     return json(res, 200, extraction)
   } catch (error) {
+    audit("api_key_or_video_link_failure", { path: req.path })
     return json(res, 502, { error: publicErrorMessage(error, "Video link extraction failed.") })
   }
 })
-server.post("/api/video/extract", async (req, res) => {
-  const { fileName = "video", mimeType = "video/mp4", data = "" } = req.body || {}
-  if (!data) return json(res, 400, { error: "Video data is required." })
+server.post("/api/video/extract", videoLimiter, validateBody(videoExtractSchema), async (req, res) => {
+  const { fileName, mimeType, data } = req.validatedBody
   try {
     const extraction = await extractVideoTextWithGemini({ fileName, mimeType, data })
+    audit("video_extracted", { mimeType, approxBytes: Math.ceil(data.length * 0.75) })
     return json(res, 200, extraction)
   } catch (error) {
+    audit("api_key_or_video_extract_failure", { path: req.path })
     return json(res, 502, { error: publicErrorMessage(error, "Video extraction failed.") })
   }
 })
-server.post("/api/verify", async (req, res) => {
+server.post("/api/verify", verifyLimiter, validateBody(verifySchema), async (req, res) => {
   try {
-    const result = await createVerificationResult(req.body)
-    const token = req.headers.authorization?.replace(/^Bearer\s+/i, "")
-    const session = token ? sessions.get(token) : null
-    const user = session ? users.get(session.email) : null
+    if (req.validatedBody.type === "image" && Number(req.validatedBody.content?.ocrConfidence) < 45) {
+      return json(res, 400, { error: "OCR confidence is low. Please correct extracted text before generating a report." })
+    }
+    const result = await createVerificationResult(req.validatedBody)
+    const token = getRequestToken(req)
+    const user = token ? await getUserFromToken(token) : null
 
     const report = {
       id: crypto.randomUUID(),
@@ -288,7 +444,7 @@ server.post("/api/verify", async (req, res) => {
       inputType: result.inputType,
       language: result.language,
       createdAt: new Date().toISOString(),
-      result,
+      result: maskPII(result),
     }
     reports.unshift(report)
     if (isSupabaseConfigured()) {
@@ -298,11 +454,21 @@ server.post("/api/verify", async (req, res) => {
         console.warn(`Supabase report insert failed, kept local fallback: ${error.message}`)
       }
     }
+    audit("report_generated", { reportId: report.id, userId: user?.id || null, inputType: result.inputType, verdict: result.verdict })
     return json(res, 200, { reportId: report.id, result })
   } catch (error) {
     console.error(`Verification failed: ${error.message}`)
+    audit("verification_failed", { path: req.path })
     return json(res, 502, { error: publicErrorMessage(error, "Verification failed.") })
   }
+})
+
+server.use("/api", (error, req, res, nextMiddleware) => {
+  if (!error) return nextMiddleware()
+  audit("suspicious_or_invalid_request", { path: req.path, ip: req.ip })
+  if (error.type === "entity.too.large") return json(res, 413, { error: "Request payload is too large." })
+  if (/CORS/i.test(error.message || "")) return json(res, 403, { error: "Origin is not allowed." })
+  return json(res, 400, { error: "Invalid request." })
 })
 
 server.all(/^\/api\/.*/, (req, res) => {

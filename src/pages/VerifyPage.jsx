@@ -14,6 +14,7 @@ export default function VerifyPage() {
   const [stage, setStage] = useState("input") // input | loading | result
   const [result, setResult] = useState(null)
   const [error, setError] = useState("")
+  const [loadingType, setLoadingType] = useState("text")
 
   useEffect(() => {
     if (location.state?.savedResult) {
@@ -25,6 +26,7 @@ export default function VerifyPage() {
   const handleCheck = async (request) => {
     setError("")
     setResult(null)
+    setLoadingType(request.type || "text")
     setStage("loading")
 
     try {
@@ -60,7 +62,7 @@ export default function VerifyPage() {
           <VerifyDashboard initialTab={initialTab} onCheck={handleCheck} />
         </>}
 
-      {stage === "loading" && <LoadingSteps />}
+      {stage === "loading" && <LoadingSteps type={loadingType} />}
 
       {stage === "result" && result && <ResultCard result={result} onReset={handleReset} />}
     </div>

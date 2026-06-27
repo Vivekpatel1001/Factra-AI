@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react"
-import { getAuthToken, getMe, logout as apiLogout } from "../lib/api.js"
+import { getMe, logout as apiLogout } from "../lib/api.js"
 import { translations } from "../lib/translations.js"
 
 const AppContext = createContext(null)
@@ -8,7 +8,7 @@ export function AppProvider({ children }) {
   const [language, setLanguage] = useState(() => localStorage.getItem("factra-language") || "en")
   const [largeFont, setLargeFont] = useState(false)
   const [user, setUser] = useState(null)
-  const [authLoading, setAuthLoading] = useState(Boolean(getAuthToken()))
+  const [authLoading, setAuthLoading] = useState(true)
 
   useEffect(() => {
     const root = document.documentElement
@@ -24,10 +24,6 @@ export function AppProvider({ children }) {
   useEffect(() => {
     let active = true
     async function loadUser() {
-      if (!getAuthToken()) {
-        setAuthLoading(false)
-        return
-      }
       try {
         const data = await getMe()
         if (active) setUser(data.user)

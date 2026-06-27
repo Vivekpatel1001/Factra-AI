@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ArrowRight, FileText, LogIn, RotateCcw } from "lucide-react"
+import { ArrowRight, FileText, LogIn, Trash2 } from "lucide-react"
 import Button from "../components/ui/Button.jsx"
 import Card from "../components/ui/Card.jsx"
 import TrustScore from "../components/TrustScore.jsx"
-import { getReports } from "../lib/api.js"
+import { deleteReport, getReports } from "../lib/api.js"
 import { getVerdict } from "../lib/verdicts.js"
 import { useApp } from "../context/AppContext.jsx"
 
@@ -14,6 +14,7 @@ export default function SavedChecksPage() {
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [deletingId, setDeletingId] = useState("")
 
   useEffect(() => {
     let active = true
@@ -38,6 +39,19 @@ export default function SavedChecksPage() {
       active = false
     }
   }, [isAuthenticated])
+
+  const handleDelete = async (reportId) => {
+    setDeletingId(reportId)
+    setError("")
+    try {
+      await deleteReport(reportId)
+      setReports((current) => current.filter((report) => report.id !== reportId))
+    } catch (err) {
+      setError(err.message || "Could not delete this report.")
+    } finally {
+      setDeletingId("")
+    }
+  }
 
   if (!isAuthenticated) {
     return (
@@ -111,6 +125,14 @@ export default function SavedChecksPage() {
                   <TrustScore score={result.trustScore || 0} />
                   <Button variant="secondary" onClick={() => navigate("/verify", { state: { savedResult: result } })}>
                     View
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    aria-label="Delete report"
+                    onClick={() => handleDelete(report.id)}
+                    disabled={deletingId === report.id}
+                  >
+                    <Trash2 className="h-5 w-5" />
                   </Button>
                 </div>
               </div>

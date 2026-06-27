@@ -1,0 +1,58 @@
+[
+  {
+    "source": "PIB Fact Check",
+    "url": "https://factcheck.pib.gov.in/",
+    "title": "Government of India official fact-check portal",
+    "text": "PIB Fact Check verifies claims related to the Government of India, ministries, schemes, public notices, recruitment messages, financial benefits, and viral social media posts. Claims about free laptops, government cash rewards, registration links, and urgent scheme benefits should be checked against official PIB and ministry sources before sharing.",
+    "trusted": true
+  },
+  {
+    "source": "MyGov India",
+    "url": "https://www.mygov.in/",
+    "title": "Official citizen engagement platform of the Government of India",
+    "text": "MyGov India publishes official citizen-facing information, government campaigns, advisories, and public service announcements. Viral claims about central government schemes should be validated through official government portals and not through unofficial forms or social media links.",
+    "trusted": true
+  },
+  {
+    "source": "WHO",
+    "url": "https://www.who.int/",
+    "title": "World Health Organization public health guidance",
+    "text": "WHO provides public health guidance, disease information, emergency updates, vaccines information, and misinformation guidance. Health claims about cures, outbreaks, vaccines, medicines, or disease prevention should be checked against WHO and national health authority guidance.",
+    "trusted": true
+  },
+  {
+    "source": "Reserve Bank of India",
+    "url": "https://www.rbi.org.in/",
+    "title": "Official monetary and banking authority of India",
+    "text": "The Reserve Bank of India publishes official information about currency, banking regulation, digital payments, monetary policy, bank holidays, and financial safety advisories. Viral claims about currency bans, bank closures, payment rules, or RBI schemes should be verified from RBI notifications.",
+    "trusted": true
+  },
+  {
+    "source": "Election Commission of India",
+    "url": "https://eci.gov.in/",
+    "title": "Official election authority of India",
+    "text": "The Election Commission of India publishes official election schedules, voter information, model code guidance, results, and election notices. Claims about voting dates, voter registration, election results, or EVM instructions should be verified from ECI sources.",
+    "trusted": true
+  },
+  {
+    "source": "Alt News",
+    "url": "https://www.altnews.in/",
+    "title": "Indian fact-checking organization",
+    "text": "Alt News investigates misinformation, viral social media claims, political claims, communal rumours, edited videos, old images shared as new, and misleading captions. It is useful as a secondary fact-check source along with primary official evidence.",
+    "trusted": true
+  },
+  {
+    "source": "BOOM Live",
+    "url": "https://www.boomlive.in/",
+    "title": "Fact-checking and misinformation analysis",
+    "text": "BOOM Live fact-checks viral misinformation, public claims, scam messages, manipulated images, misleading videos, health misinformation, and political claims. It can support verification when direct primary sources are also reviewed.",
+    "trusted": true
+  },
+  {
+    "source": "Reuters Fact Check",
+    "url": "https://www.reuters.com/fact-check/",
+    "title": "International fact-checking source",
+    "text": "Reuters Fact Check verifies international claims, images, videos, public statements, health misinformation, geopolitical claims, and viral social media posts. Reuters is a high-reliability source for cross-checking global news and public claims.",
+    "trusted": true
+  }
+]

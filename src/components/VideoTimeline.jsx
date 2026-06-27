@@ -50,6 +50,25 @@ export default function VideoTimeline({ items = [] }) {
                     {t("video_warning")}
                   </p>
                 )}
+                {item.meaning && (
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{item.meaning}</p>
+                )}
+                {item.evidence?.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    {item.evidence.slice(0, 2).map((evidence) => (
+                      <a
+                        key={evidence.link || evidence.source}
+                        href={evidence.link && evidence.link !== "#" ? evidence.link : undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-2xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+                      >
+                        <span className="font-semibold text-foreground">{evidence.source}</span>
+                        <span className="mt-1 line-clamp-2 block">{evidence.explanation}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             </li>
           )

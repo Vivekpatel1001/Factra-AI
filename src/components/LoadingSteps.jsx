@@ -12,22 +12,30 @@ const steps = [
   { id: "result", labelKey: "loading_result", icon: "Sparkles" },
 ]
 
-export default function LoadingSteps({ onDone }) {
+const videoSteps = [
+  { id: "read", label: "Reading transcript and visible text", icon: "BookOpen" },
+  { id: "claims", label: "Finding the main checkable claim", icon: "Search" },
+  { id: "sources", label: "Checking fast evidence sources", icon: "ShieldCheck" },
+  { id: "result", label: "Preparing verdict and trust score", icon: "Sparkles" },
+]
+
+export default function LoadingSteps({ onDone, type = "text" }) {
   const { t } = useApp()
   const [current, setCurrent] = useState(0)
+  const activeSteps = type === "video" ? videoSteps : steps
 
   useEffect(() => {
-    if (current >= steps.length) {
+    if (current >= activeSteps.length) {
       const finish = setTimeout(() => {
         onDone?.()
       }, 600)
       return () => clearTimeout(finish)
     }
-    const timer = setTimeout(() => setCurrent((c) => c + 1), 1100)
+    const timer = setTimeout(() => setCurrent((c) => Math.min(c + 1, activeSteps.length - 1)), type === "video" ? 1700 : 1200)
     return () => clearTimeout(timer)
-  }, [current, onDone])
+  }, [current, onDone, activeSteps.length, type])
 
-  const progress = Math.min((current / steps.length) * 100, 100)
+  const progress = Math.min(((current + 1) / activeSteps.length) * 92, 92)
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-background/95 px-4 backdrop-blur-xl">
@@ -57,7 +65,7 @@ export default function LoadingSteps({ onDone }) {
         </div>
 
         <ul className="mt-8 flex flex-col gap-3 text-left">
-          {steps.map((step, i) => {
+          {activeSteps.map((step, i) => {
             const Icon = icons[step.icon]
             const done = i < current
             const active = i === current
@@ -84,7 +92,7 @@ export default function LoadingSteps({ onDone }) {
                   {done ? <Check className="h-5 w-5" /> : active ? <Loader2 className="h-5 w-5 animate-spin" /> : <Icon className="h-5 w-5" />}
                 </span>
                 <span className={`text-lg font-medium ${done || active ? "text-foreground" : "text-muted-foreground"}`}>
-                  {t(step.labelKey)}
+                  {step.label || t(step.labelKey)}
                   {(active || done) && "..."}
                 </span>
               </li>

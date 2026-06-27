@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="2200" viewBox="0 0 1200 2200">
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 34px Arial, sans-serif; fill: #111827; }
+      .subtitle { font: 400 18px Arial, sans-serif; fill: #4b5563; }
+      .box { fill: #ffffff; stroke: #ef4444; stroke-width: 2; stroke-dasharray: 8 6; rx: 10; }
+      .solid { fill: #ffffff; stroke: #1f2937; stroke-width: 2; rx: 8; }
+      .store { fill: #eef6ff; stroke: #2563eb; stroke-width: 2; stroke-dasharray: 8 6; rx: 10; }
+      .llm { fill: #f5f3ff; stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 8 6; rx: 10; }
+      .report { fill: #ecfdf5; stroke: #059669; stroke-width: 2; stroke-dasharray: 8 6; rx: 10; }
+      .text { font: 600 19px Arial, sans-serif; fill: #111827; }
+      .small { font: 400 15px Arial, sans-serif; fill: #374151; }
+      .tiny { font: 400 13px Arial, sans-serif; fill: #6b7280; }
+      .arrow { stroke: #2563eb; stroke-width: 3; stroke-dasharray: 9 8; fill: none; marker-end: url(#arrowhead); }
+      .branch { stroke: #2563eb; stroke-width: 2.5; stroke-dasharray: 8 8; fill: none; marker-end: url(#arrowhead); }
+      .label { font: 700 14px Arial, sans-serif; fill: #374151; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#2563eb"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="2200"/>
+  <text class="title" x="70" y="70">Complete RAG Pipeline for Factra AI</text>
+  <text class="subtitle" x="70" y="105">Target architecture for multimodal fact-checking, trusted retrieval, verdict generation, and trust scoring.</text>
+
+  <rect class="solid" x="210" y="145" width="780" height="70"/>
+  <text class="text" x="600" y="175" text-anchor="middle">USER INPUT</text>
+  <text class="small" x="600" y="198" text-anchor="middle">Text | News URL | Screenshot | Image | Video | Reel URL</text>
+
+  <path class="arrow" d="M600 215 L600 275"/>
+
+  <rect class="box" x="410" y="275" width="380" height="85"/>
+  <text class="text" x="600" y="310" text-anchor="middle">Input Detection Layer</text>
+  <text class="small" x="600" y="336" text-anchor="middle">Detect content type and route correctly</text>
+
+  <path class="arrow" d="M600 360 L600 430"/>
+
+  <text class="label" x="210" y="430" text-anchor="middle">Plain Text / URL</text>
+  <text class="label" x="600" y="430" text-anchor="middle">Image / Screenshot</text>
+  <text class="label" x="990" y="430" text-anchor="middle">Video / Reel</text>
+
+  <path class="branch" d="M600 390 C500 410 340 420 250 465"/>
+  <path class="branch" d="M600 390 L600 465"/>
+  <path class="branch" d="M600 390 C700 410 860 420 950 465"/>
+
+  <rect class="box" x="80" y="465" width="340" height="95"/>
+  <text class="text" x="250" y="500" text-anchor="middle">Text Normalizer</text>
+  <text class="small" x="250" y="526" text-anchor="middle">Remove noise, ads, duplicates</text>
+
+  <rect class="box" x="430" y="465" width="340" height="95"/>
+  <text class="text" x="600" y="500" text-anchor="middle">Tesseract OCR</text>
+  <text class="small" x="600" y="526" text-anchor="middle">English + Hindi + Gujarati traineddata</text>
+
+  <rect class="box" x="780" y="465" width="340" height="95"/>
+  <text class="text" x="950" y="500" text-anchor="middle">Whisper STT + Frame OCR</text>
+  <text class="small" x="950" y="526" text-anchor="middle">Speech transcript and visible text</text>
+
+  <path class="branch" d="M250 560 C250 625 410 625 500 670"/>
+  <path class="branch" d="M600 560 L600 670"/>
+  <path class="branch" d="M950 560 C950 625 790 625 700 670"/>
+
+  <rect class="box" x="410" y="670" width="380" height="90"/>
+  <text class="text" x="600" y="705" text-anchor="middle">Clean and Normalize Text</text>
+  <text class="small" x="600" y="731" text-anchor="middle">Merge OCR, transcript, metadata, and user text</text>
+
+  <path class="arrow" d="M600 760 L600 835"/>
+
+  <rect class="box" x="410" y="835" width="380" height="95"/>
+  <text class="text" x="600" y="870" text-anchor="middle">AI Claim Extraction</text>
+  <text class="small" x="600" y="896" text-anchor="middle">Extract atomic factual claims</text>
+
+  <path class="arrow" d="M600 930 L600 1005"/>
+
+  <rect class="box" x="410" y="1005" width="380" height="95"/>
+  <text class="text" x="600" y="1040" text-anchor="middle">Embedding Generation</text>
+  <text class="small" x="600" y="1066" text-anchor="middle">Convert claims and evidence chunks to vectors</text>
+
+  <path class="arrow" d="M600 1100 L600 1175"/>
+
+  <rect class="store" x="410" y="1175" width="380" height="95"/>
+  <text class="text" x="600" y="1210" text-anchor="middle">Vector Search</text>
+  <text class="small" x="600" y="1236" text-anchor="middle">FAISS / Chroma semantic retrieval</text>
+
+  <path class="arrow" d="M600 1270 L600 1345"/>
+
+  <rect class="store" x="320" y="1345" width="560" height="205"/>
+  <text class="text" x="600" y="1382" text-anchor="middle">Retrieve Trusted Evidence</text>
+  <text class="small" x="390" y="1425">- News APIs and search snippets</text>
+  <text class="small" x="390" y="1455">- Government, PIB, and official portals</text>
+  <text class="small" x="390" y="1485">- WHO and public health databases</text>
+  <text class="small" x="390" y="1515">- Verified fact-check sources</text>
+
+  <path class="arrow" d="M600 1550 L600 1625"/>
+
+  <rect class="box" x="410" y="1625" width="380" height="95"/>
+  <text class="text" x="600" y="1660" text-anchor="middle">RAG Context Builder</text>
+  <text class="small" x="600" y="1686" text-anchor="middle">Combine claim + top evidence + citations</text>
+
+  <path class="arrow" d="M600 1720 L600 1795"/>
+
+  <rect class="llm" x="410" y="1795" width="380" height="95"/>
+  <text class="text" x="600" y="1830" text-anchor="middle">Primary LLM: Gemini</text>
+  <text class="small" x="600" y="1856" text-anchor="middle">Fallback: local rules / backup LLM</text>
+
+  <path class="arrow" d="M600 1890 L600 1965"/>
+
+  <rect class="llm" x="410" y="1965" width="380" height="90"/>
+  <text class="text" x="600" y="2000" text-anchor="middle">AI Verdict Engine</text>
+  <text class="small" x="600" y="2026" text-anchor="middle">True / False / Misleading / Unknown</text>
+
+  <path class="arrow" d="M600 2055 L600 2130"/>
+
+  <rect class="report" x="80" y="2130" width="1040" height="55"/>
+  <text class="text" x="600" y="2164" text-anchor="middle">Final User Report: Verdict, Trust Score, Evidence, Citations, Timeline, Shareable Card</text>
+</svg>
