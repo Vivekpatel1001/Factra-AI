@@ -4,6 +4,7 @@ import VerifyDashboard from "../components/VerifyDashboard.jsx"
 import LoadingSteps from "../components/LoadingSteps.jsx"
 import ResultCard from "../components/ResultCard.jsx"
 import { verifyContent } from "../lib/api.js"
+import { useLocalizedReport } from "../hooks/useLocalizedReport.js"
 import { useApp } from "../context/AppContext.jsx"
 
 export default function VerifyPage() {
@@ -12,26 +13,27 @@ export default function VerifyPage() {
   const initialTab = location.state?.tab || "text"
 
   const [stage, setStage] = useState("input") // input | loading | result
-  const [result, setResult] = useState(null)
+  const [sourceResult, setSourceResult] = useState(null)
   const [error, setError] = useState("")
   const [loadingType, setLoadingType] = useState("text")
+  const { displayResult, localizing } = useLocalizedReport(sourceResult)
 
   useEffect(() => {
     if (location.state?.savedResult) {
-      setResult(location.state.savedResult)
+      setSourceResult(location.state.savedResult)
       setStage("result")
     }
   }, [location.state])
 
   const handleCheck = async (request) => {
     setError("")
-    setResult(null)
+    setSourceResult(null)
     setLoadingType(request.type || "text")
     setStage("loading")
 
     try {
       const data = await verifyContent(request)
-      setResult(data.result)
+      setSourceResult(data.result)
       setStage("result")
     } catch (err) {
       setError(err.message || t("verify_failed"))
@@ -40,7 +42,7 @@ export default function VerifyPage() {
   }
 
   const handleReset = () => {
-    setResult(null)
+    setSourceResult(null)
     setError("")
     setStage("input")
   }
@@ -64,7 +66,9 @@ export default function VerifyPage() {
 
       {stage === "loading" && <LoadingSteps type={loadingType} />}
 
-      {stage === "result" && result && <ResultCard result={result} onReset={handleReset} />}
+      {stage === "result" && displayResult && (
+        <ResultCard result={displayResult} onReset={handleReset} localizing={localizing} />
+      )}
     </div>
   )
 }

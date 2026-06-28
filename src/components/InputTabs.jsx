@@ -15,11 +15,22 @@ import Button from "./ui/Button.jsx"
 import Card from "./ui/Card.jsx"
 import UploadBox from "./UploadBox.jsx"
 import VoiceButton from "./VoiceButton.jsx"
-import { extractVideoContent, extractVideoLinkContent } from "../lib/api.js"
+import { extractImageContent, extractVideoContent, extractVideoLinkContent } from "../lib/api.js"
 import { useApp } from "../context/AppContext.jsx"
 
-const TESSERACT_BASE_URL = `${import.meta.env.BASE_URL || "/"}tesseract/`.replace(/\/+/g, "/")
-const TESSDATA_URL = `${import.meta.env.BASE_URL || "/"}tessdata`.replace(/\/+/g, "/")
+const TESSDATA_CDN = "https://tessdata.projectnaptha.com/4.0.0"
+
+function resolveOcrLanguages(ocrLanguage, uiLanguage) {
+  if (ocrLanguage === "eng+hin+guj") return "eng+hin+guj"
+  if (ocrLanguage === "auto") {
+    if (uiLanguage === "hi") return "hin+eng"
+    if (uiLanguage === "gu") return "guj+eng"
+    return "eng+hin"
+  }
+  if (ocrLanguage === "hin") return "hin+eng"
+  if (ocrLanguage === "guj") return "guj+eng"
+  return ocrLanguage
+}
 
 const canvasToBlob = (canvas) =>
   new Promise((resolve, reject) => {
@@ -334,7 +345,7 @@ const demoTranscript = [
 ].join("\n")
 
 export default function InputTabs({ initialTab = "text", onCheck }) {
-  const { t } = useApp()
+  const { t, language } = useApp()
   const [tab, setTab] = useState(initialTab)
   const [text, setText] = useState("")
   const [link, setLink] = useState("")
@@ -345,7 +356,9 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
   const [ocrStatus, setOcrStatus] = useState("idle")
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrConfidence, setOcrConfidence] = useState(null)
-  const [ocrLanguage, setOcrLanguage] = useState("auto")
+  const defaultOcrLanguage = language === "hi" ? "hin" : language === "gu" ? "guj" : "eng"
+  const [ocrLanguage, setOcrLanguage] = useState(defaultOcrLanguage)
+  const [ocrLanguageManual, setOcrLanguageManual] = useState(false)
   const [ocrLayout, setOcrLayout] = useState("auto")
   const [ocrError, setOcrError] = useState("")
   const [ocrWords, setOcrWords] = useState([])
@@ -374,6 +387,10 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     mixed: t("ocr_lang_mixed"),
     unknown: t("ocr_lang_unknown"),
   }
+
+  useEffect(() => {
+    if (!ocrLanguageManual) setOcrLanguage(defaultOcrLanguage)
+  }, [defaultOcrLanguage, ocrLanguageManual])
 
   useEffect(() => {
     return () => {
@@ -409,79 +426,134 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     await runImageOcr(file)
   }
 
-  const recognizeRegion = async (Tesseract, preparedImage, region, index, count) => {
-    const recognitionLanguages = ocrLanguage === "auto" ? ["eng", "hin", "guj", "eng+hin+guj"] : [ocrLanguage]
-    const modes = region.label === "Full page" ? [Tesseract.PSM.AUTO] : [Tesseract.PSM.SINGLE_BLOCK]
-    const canvases = [{ canvas: cropCanvas(preparedImage.canvas, region), variant: "enhanced" }]
-    const candidates = []
+  const recognizeWithTesseract = async (file, preparedImage, regions) => {
+    const { createWorker, PSM, OEM } = await import("tesseract.js")
+    const recognitionLanguage = resolveOcrLanguages(ocrLanguage, language)
+    const worker = await createWorker(recognitionLanguage, OEM.LSTM_ONLY, {
+      langPath: TESSDATA_CDN,
+      logger: (message) => {
+        if (message.status === "loading tesseract core") setOcrProgress(8)
+        if (message.status === "initializing tesseract") setOcrProgress(12)
+        if (message.status === "loading language traineddata") {
+          setOcrProgress(Math.round(12 + (message.progress || 0) * 28))
+        }
+        if (message.status === "recognizing text") {
+          setOcrProgress(Math.round(40 + (message.progress || 0) * 55))
+        }
+      },
+    })
 
-    for (const [languageIndex, recognitionLanguage] of recognitionLanguages.entries()) {
-      for (const [modeIndex, mode] of modes.entries()) {
-        for (const [canvasIndex, item] of canvases.entries()) {
+    try {
+      const results = []
+      for (let index = 0; index < regions.length; index += 1) {
+        const region = regions[index]
+        const pageMode = region.label === "Full page" ? PSM.AUTO : PSM.SINGLE_BLOCK
+        const canvases = [
+          { canvas: cropCanvas(preparedImage.canvas, region), variant: "enhanced" },
+          { canvas: cropCanvas(preparedImage.binaryCanvas, region), variant: "binary" },
+        ]
+        const candidates = []
+
+        for (const item of canvases) {
           const regionBlob = await canvasToBlob(item.canvas)
-          const stepCount = recognitionLanguages.length * modes.length * canvases.length
-          const options = {
-            workerPath: `${TESSERACT_BASE_URL}worker.min.js`,
-            corePath: `${TESSERACT_BASE_URL}tesseract-core-lstm.wasm.js`,
-            langPath: TESSDATA_URL,
-            tessedit_pageseg_mode: mode,
-            tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
+          await worker.setParameters({
+            tessedit_pageseg_mode: pageMode,
             preserve_interword_spaces: "1",
             user_defined_dpi: "300",
-            tessedit_char_blacklist: "|~^_{}[]",
-            logger: (message) => {
-              if (message.status === "recognizing text") {
-                const stepIndex = languageIndex * modes.length * canvases.length + modeIndex * canvases.length + canvasIndex
-                const progress = ((index + (stepIndex + (message.progress || 0)) / stepCount) / count) * 100
-                setOcrProgress(Math.round(progress))
-              }
-            },
-          }
-
-          try {
-            const result = await Tesseract.recognize(regionBlob, recognitionLanguage, options)
-            candidates.push({
-              text: formatOcrLines(result.data.lines, result.data.text),
-              confidence: Math.round(result.data.confidence || 0),
-              words: mapOcrWords(result.data.words, { x: region.x, y: region.y }),
-              lines: mapOcrLines(result.data.lines, { x: region.x, y: region.y }),
-              variant: `${item.variant}-${recognitionLanguage}`,
-              mode,
-            })
-          } catch (error) {
-            if (ocrLanguage !== "auto") throw error
-          }
+          })
+          const result = await worker.recognize(regionBlob)
+          candidates.push({
+            text: formatOcrLines(result.data.lines, result.data.text),
+            confidence: Math.round(result.data.confidence || 0),
+            words: mapOcrWords(result.data.words, { x: region.x, y: region.y }),
+            lines: mapOcrLines(result.data.lines, { x: region.x, y: region.y }),
+            variant: `${item.variant}-${recognitionLanguage}`,
+          })
         }
-      }
-    }
 
-    return selectBestOcrResult(candidates)
+        results.push(selectBestOcrResult(candidates))
+      }
+      return results
+    } finally {
+      await worker.terminate()
+    }
   }
+
   const runImageOcr = async (file = imageFile) => {
     if (!file) return
     resetOcrState()
     setOcrStatus("reading")
+    setOcrProgress(5)
+
     try {
-      const tesseractModule = await import("tesseract.js")
-      const Tesseract = tesseractModule.default || tesseractModule
       const preparedImage = await preprocessImage(file)
       const regions = getOcrRegions(preparedImage, ocrLayout)
       setOcrPreview(preparedImage)
       setOcrRegions(regions)
 
-      const results = []
-      for (let i = 0; i < regions.length; i += 1) {
-        results.push(await recognizeRegion(Tesseract, preparedImage, regions[i], i, regions.length))
+      let extracted = ""
+      let confidence = 0
+      let backendError = ""
+
+      try {
+        setOcrProgress(10)
+        const data = await fileToBase64(file)
+        const backend = await extractImageContent({
+          fileName: file.name,
+          mimeType: file.type || "image/png",
+          data,
+          language,
+        })
+        extracted = cleanOcrText(backend.text || "")
+        confidence = backend.confidence || (extracted ? 90 : 0)
+        if (extracted) {
+          setOcrText(extracted)
+          setOcrConfidence(confidence)
+          setOcrDetectedLanguage(detectOcrLanguage(extracted))
+          setOcrProgress(100)
+          setOcrStatus("done")
+          return
+        }
+      } catch (error) {
+        backendError = error.message || t("ocr_failed")
       }
 
-      const extracted = formatOcrResults(results, ocrLayout)
+      setOcrProgress(18)
+      const results = await recognizeWithTesseract(file, preparedImage, regions)
+      extracted = formatOcrResults(results, ocrLayout)
+      confidence = weightedConfidence(results)
+
+      if (!extracted.trim() && backendError) {
+        throw new Error(backendError)
+      }
+
+      if ((!extracted.trim() || confidence < 40) && !backendError) {
+        try {
+          const data = await fileToBase64(file)
+          const backend = await extractImageContent({
+            fileName: file.name,
+            mimeType: file.type || "image/png",
+            data,
+            language,
+          })
+          const backendText = cleanOcrText(backend.text || "")
+          if (backendText && scoreOcrResult({ text: backendText, confidence: backend.confidence || 0 }) >= scoreOcrResult({ text: extracted, confidence })) {
+            extracted = backendText
+            confidence = backend.confidence || 90
+          }
+        } catch {
+          // Keep Tesseract output if backend retry fails.
+        }
+      }
+
       setOcrText(extracted)
       setOcrWords(results.flatMap((result) => result.words))
       setOcrLines(results.flatMap((result) => result.lines))
       setOcrDetectedLanguage(detectOcrLanguage(extracted))
-      setOcrConfidence(weightedConfidence(results))
+      setOcrConfidence(confidence)
+      setOcrProgress(100)
       setOcrStatus(extracted ? "done" : "empty")
-      if (!extracted) setOcrError(t("ocr_empty"))
+      if (!extracted) setOcrError(backendError || t("ocr_empty"))
     } catch (err) {
       setOcrStatus("error")
       setOcrError(err.message || t("ocr_failed"))
@@ -505,8 +577,8 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
       const data = await fileToBase64(file)
       const extraction = await extractVideoContent({ fileName: file.name, mimeType: file.type || "video/mp4", data })
       const parts = []
-      if (extraction.speechTranscript) parts.push(`Speech transcript:\n${extraction.speechTranscript}`)
-      if (extraction.visibleText) parts.push(`Visible text / OCR:\n${extraction.visibleText}`)
+      if (extraction.speechTranscript) parts.push(`${t("video_speech_transcript_prefix")}\n${extraction.speechTranscript}`)
+      if (extraction.visibleText) parts.push(`${t("video_visible_text_prefix")}\n${extraction.visibleText}`)
       if (!parts.length && extraction.combinedText) parts.push(extraction.combinedText)
       const extractedText = parts.join("\n\n").trim()
       setVideoTranscript(extractedText)
@@ -532,8 +604,8 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
       const extraction = await extractVideoLinkContent({ url })
       const parts = []
       if (extraction.combinedText) parts.push(extraction.combinedText)
-      if (extraction.speechTranscript) parts.push(`Speech/context transcript:\n${extraction.speechTranscript}`)
-      if (extraction.visibleText) parts.push(`Visible text / OCR:\n${extraction.visibleText}`)
+      if (extraction.speechTranscript) parts.push(`${t("video_context_transcript_prefix")}\n${extraction.speechTranscript}`)
+      if (extraction.visibleText) parts.push(`${t("video_visible_text_prefix")}\n${extraction.visibleText}`)
       const extractedText = parts.join("\n\n").trim()
       setVideoTranscript(extractedText)
       setVideoLinkStatus(extractedText ? "done" : "empty")
@@ -551,7 +623,6 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
     if (tab === "image" && !imageFile) return setError(t("error_image_required"))
     if (tab === "image" && ocrStatus === "reading") return setError(t("error_ocr_wait"))
     if (tab === "image" && !ocrText.trim()) return setError(t("error_ocr_required"))
-    if (tab === "image" && ocrConfidence !== null && ocrConfidence < 45) return setError(t("ocr_low_confidence_error"))
     if (tab === "video" && !videoFile && !videoUrl.trim()) return setError(t("video_need_upload_or_link"))
     if (tab === "video" && (videoExtractionStatus === "reading" || videoLinkStatus === "reading")) return setError(t("video_wait_extracting"))
     if (tab === "video" && videoUrl.trim() && !videoTranscript.trim()) {
@@ -579,6 +650,7 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
 
     onCheck?.({
       type: tab,
+      language,
       content,
     })
   }
@@ -657,7 +729,11 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
               <select
                 id="ocr-language"
                 value={ocrLanguage}
-                onChange={(e) => setOcrLanguage(e.target.value)}
+                onChange={(e) => {
+                  const nextLanguage = e.target.value
+                  setOcrLanguage(nextLanguage)
+                  setOcrLanguageManual(nextLanguage !== defaultOcrLanguage)
+                }}
                 className="rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
               >
                 <option value="auto">{t("ocr_auto_detect")}</option>
@@ -810,6 +886,33 @@ export default function InputTabs({ initialTab = "text", onCheck }) {
           <div>
             <p className="mb-2 text-lg font-semibold">{t("label_video")}</p>
             <UploadBox accept="video/*" icon={Video} onFile={handleVideoFile} />
+            <div className="mt-4">
+              <label htmlFor="video-link" className="mb-2 block text-base font-semibold">
+                {t("label_video_link")}
+              </label>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  id="video-link"
+                  type="url"
+                  value={videoUrl}
+                  onChange={(e) => {
+                    setVideoUrl(e.target.value)
+                    setVideoExtractionError("")
+                  }}
+                  placeholder={t("ph_video_link")}
+                  className="w-full rounded-2xl border border-input bg-background px-4 py-4 text-lg focus:outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
+                />
+                <button
+                  type="button"
+                  onClick={handleVideoUrlExtraction}
+                  disabled={videoLinkStatus === "reading" || !videoUrl.trim()}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-5 py-3 text-base font-bold text-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {videoLinkStatus === "reading" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Link2 className="h-5 w-5" />}
+                  {t("video_extract_link")}
+                </button>
+              </div>
+            </div>
             <p className="mt-3 flex items-center gap-2 text-base text-muted-foreground">
               <Info className="h-5 w-5 shrink-0 text-primary" />
               {t("help_video")}

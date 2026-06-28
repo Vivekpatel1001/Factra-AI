@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react"
-import { getMe, logout as apiLogout } from "../lib/api.js"
+import { getMe, logout as apiLogout, setUnauthorizedHandler } from "../lib/api.js"
 import { translations } from "../lib/translations.js"
 
 const AppContext = createContext(null)
@@ -20,6 +20,11 @@ export function AppProvider({ children }) {
     document.documentElement.lang = language
     localStorage.setItem("factra-language", language)
   }, [language])
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null))
+    return () => setUnauthorizedHandler(null)
+  }, [])
 
   useEffect(() => {
     let active = true

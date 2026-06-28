@@ -76,11 +76,18 @@ function userSafeServiceMessage(error, fallback = "External AI service is unavai
   return message && message.length < 220 ? message : fallback
 }
 
-function cleanClaim(payload = {}) {
-  const content = payload.content || {}
-  return String(content.text || content.transcript || content.videoUrl || content.link || content.fileName || "")
+function cleanExtractedClaimText(text = "") {
+  return String(text || "")
+    .replace(/^\s*[iI1|]\s+/g, "")
+    .replace(/\b(सरकार)\s+\1\b/g, "$1")
+    .replace(/\b(government)\s+\1\b/gi, "$1")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function cleanClaim(payload = {}) {
+  const content = payload.content || {}
+  return cleanExtractedClaimText(String(content.text || content.transcript || content.videoUrl || content.link || content.fileName || ""))
 }
 function compactSearchQuery(payload = {}, claim = "") {
   const content = payload.content || {}
@@ -430,16 +437,24 @@ function trustEvidenceByDomain(items = []) {
   }))
 }
 
-async function searchOfficialSources(claim) {
+async function searchOfficialSources(claim, language = "en") {
   const query = `${claim} (${OFFICIAL_SOURCE_DOMAINS.join(" OR ")})`
   return trustEvidenceByDomain(await searchSerper(query))
-    .map((item) => ({ ...item, source: `Official source: ${item.source}`, retrieval: "official-search" }))
+    .map((item) => ({
+      ...item,
+      source: `${read(language, "evidence_prefix_official")} ${String(item.source || "").replace(/^Official source:\s*/i, "")}`.trim(),
+      retrieval: "official-search",
+    }))
 }
 
-async function searchFactCheckSources(claim) {
+async function searchFactCheckSources(claim, language = "en") {
   const query = `${claim} fake false scam fact check (${FACT_CHECK_SOURCE_DOMAINS.join(" OR ")})`
   return trustEvidenceByDomain(await searchSerper(query))
-    .map((item) => ({ ...item, source: `Fact-check source: ${item.source}`, retrieval: "fact-check-search" }))
+    .map((item) => ({
+      ...item,
+      source: `${read(language, "evidence_prefix_factcheck")} ${String(item.source || "").replace(/^Fact-check source:\s*/i, "")}`.trim(),
+      retrieval: "fact-check-search",
+    }))
 }
 
 async function searchNewsApi(claim) {
@@ -486,10 +501,11 @@ async function searchNewsData(claim) {
 }
 
 async function collectEvidence(claim, searchQuery = claim, options = {}) {
+  const language = options.language || "en"
   const searches = await Promise.allSettled([
     ...(options.skipVectorDb ? [] : [searchTrustedVectorDb(claim)]),
-    searchOfficialSources(searchQuery),
-    searchFactCheckSources(searchQuery),
+    searchOfficialSources(searchQuery, language),
+    searchFactCheckSources(searchQuery, language),
     searchSerper(searchQuery),
     ...(options.fast ? [] : [searchNewsApi(searchQuery), searchNewsData(searchQuery)]),
   ])
@@ -513,7 +529,7 @@ async function collectEvidence(claim, searchQuery = claim, options = {}) {
 
   return {
     evidenceItems: [
-      evidence("No strong live evidence found", "The configured search providers did not return a clear matching source for this claim.", "#"),
+      evidence(read(language, "evidence_none_title"), read(language, "evidence_none_desc"), "#"),
     ],
     searchErrors,
   }
@@ -619,14 +635,14 @@ function applyVerdictScore(verdict, trustBreakdown = {}) {
   }
 }
 
-function sourceTrustLabel(item) {
+function sourceTrustLabel(item, language = "en") {
   const reliability = sourceReliability(item)
   const value = `${item?.source || ""} ${item?.link || ""}`.toLowerCase()
-  if (reliability >= 90) return "official/primary source"
-  if (/factcheck|fact-check|pibfactcheck|altnews|boomlive|snopes|reuters/.test(value)) return "verified fact-check source"
-  if (reliability >= 70) return "mainstream news source"
-  if (/facebook|instagram|youtube|twitter|x\.com|tiktok/.test(value)) return "social media or platform source"
-  return "unknown/low-trust source"
+  if (reliability >= 90) return read(language, "trust_level_official")
+  if (/factcheck|fact-check|pibfactcheck|altnews|boomlive|snopes|reuters/.test(value)) return read(language, "trust_level_factcheck")
+  if (reliability >= 70) return read(language, "trust_level_news")
+  if (/facebook|instagram|youtube|twitter|x\.com|tiktok/.test(value)) return read(language, "trust_level_social")
+  return read(language, "trust_level_unknown")
 }
 
 function sanitizePromptText(text = "") {
@@ -680,14 +696,16 @@ function recommendationForVerdict(verdict, language = "en") {
 function fallbackMeaningForVerdict(verdict, language = "en") {
   const localized = {
     hi: {
-      TRUE: "मिले हुए मजबूत सबूत इस दावे को support करते हैं। Evidence [1] और related sources मुख्य claim details से match करते हैं।",
-      FALSE: "मिले हुए मजबूत सबूत बताते हैं कि यह दावा false या scam-like है। Evidence [1] और nearby sources इसे fake, false, debunked या unsafe बताते हैं।",
-      UNVERIFIED: "Factra को इस दावे की पुष्टि के लिए पर्याप्त official या trusted evidence नहीं मिला। इसे unverified मानें।",
+      TRUE: "मिले हुए मजबूत सबूत इस दावे का समर्थन करते हैं। सबूत [1] और संबंधित स्रोत मुख्य दावे से मेल खाते हैं।",
+      FALSE: "मिले हुए मजबूत सबूत बताते हैं कि यह दावा गलत या स्कैम जैसा है। सबूत [1] और आस-पास के स्रोत इसे नकली, गलत, खंडित या असुरक्षित बताते हैं।",
+      MISLEADING: "मिले हुए सबूत बताते हैं कि इस दावे में जरूरी संदर्भ छूटा है या बात बढ़ा-चढ़ाकर कही गई है।",
+      UNVERIFIED: "Factra को इस दावे की पुष्टि के लिए पर्याप्त आधिकारिक या भरोसेमंद सबूत नहीं मिला। इसे असत्यापित मानें।",
     },
     gu: {
-      TRUE: "મળેલા મજબૂત પુરાવા આ દાવાને support કરે છે. Evidence [1] અને related sources main claim details સાથે match કરે છે.",
-      FALSE: "મળેલા મજબૂત પુરાવા બતાવે છે કે આ દાવો false અથવા scam-like છે. Evidence [1] અને nearby sources તેને fake, false, debunked અથવા unsafe કહે છે.",
-      UNVERIFIED: "Factraને આ દાવાની પુષ્ટિ કરવા પૂરતા official અથવા trusted evidence મળ્યા નથી. તેને unverified માનો.",
+      TRUE: "મળેલા મજબૂત પુરાવા આ દાવાને સમર્થન આપે છે. Evidence [1] અને સંબંધિત સ્ત્રોતો મુખ્ય દાવા સાથે મેળ ખાય છે.",
+      FALSE: "મળેલા મજબૂત પુરાવા બતાવે છે કે આ દાવો ખોટો અથવા સ્કેમ જેવો છે. Evidence [1] અને નજીકના સ્ત્રોતો તેને નકલી, ખોટો, ખંડિત અથવા અસુરક્ષિત કહે છે.",
+      MISLEADING: "મળેલા પુરાવા બતાવે છે કે આ દાવામાં જરૂરી સંદર્ભ ખૂટે છે અથવા વાત વધારીને કહેવામાં આવી છે.",
+      UNVERIFIED: "Factraને આ દાવાની પુષ્ટિ કરવા પૂરતા સત્તાવાર અથવા વિશ્વાસપાત્ર પુરાવા મળ્યા નથી. તેને અપુષ્ટિકૃત માનો.",
     },
   }
   if (localized[language]?.[verdict]) return localized[language][verdict]
@@ -702,16 +720,97 @@ function noCheckableClaimRecommendation(language = "en") {
   return "Paste the exact claim from the page/video, or upload the media file so Factra can read the speech/text directly."
 }
 
+function verdictLabelForLanguage(verdict, language = "en") {
+  const key = `verdict_${String(verdict || "UNVERIFIED").toLowerCase()}`
+  return read(language, key)
+}
+
+function detectScamPatterns(claim = "") {
+  const text = String(claim || "")
+  let score = 0
+  if (/(?:government|govt|sarkar|सरकार|भारत\s*सरकार)/i.test(text)) score += 1
+  if (/(?:free|muf?t|मुफ्त|cash|money|paisa|पैस|rupee|₹|financial|आर्थिक|sahayata|सहायता)/i.test(text)) score += 1
+  if (/(?:every|each|all|har|सभी|प्रत्येक|हर)/i.test(text)) score += 1
+  if (/(?:citizen|nagarik|नागरिक|newborn|navjat|नवजात|शिशु|baby|janm)/i.test(text)) score += 1
+  if (/(?:50|fifty|पचास)\s*(?:year|varsh|वर्ष|age|umr|आयु)/i.test(text)) score += 1
+  if (/(?:register|claim|reward|inam|इनाम|link|click|today|aaj|अभी|turant)/i.test(text)) score += 1
+  return { score, isLikelyScam: score >= 3 }
+}
+
+function evidenceContradictsUniversalClaim(claim = "", evidenceItems = []) {
+  const claimText = String(claim || "")
+  const universalClaim = /(?:every|each|all|har|सभी|प्रत्येक|हर).{0,40}(?:citizen|nagarik|नागरिक|newborn|navjat|नवजात|शिशु|baby)/i.test(claimText)
+    || /(?:newborn|navjat|नवजात|शिशु).{0,40}(?:50|year|varsh|वर्ष)/i.test(claimText)
+  if (!universalClaim) return false
+  const joined = evidenceItems.map((item) => `${item.source} ${item.explanation}`).join(" ").toLowerCase()
+  return /\b(not universal|specific groups|vulnerable|below poverty|targeted|not applicable to every|not for every|specific scheme|limited to|योजना|विशेष|लक्षित|गरीबी)\b/i.test(joined)
+}
+
+function officialSourcesConfirmExactClaim(claim = "", evidenceItems = []) {
+  const official = evidenceItems.filter((item) => item.link !== "#" && sourceReliability(item) >= 86)
+  if (!official.length) return false
+  const keywords = tokenize(claim).filter((token) => token.length > 3).slice(0, 10)
+  if (!keywords.length) return false
+  return official.some((item) => {
+    const text = `${item.source} ${item.explanation}`.toLowerCase()
+    const matched = keywords.filter((token) => text.includes(token)).length / keywords.length
+    return matched >= 0.45 && !/\b(fake|false|misleading|debunk|not universal|specific groups|below poverty|no such)\b/i.test(text)
+  })
+}
+
+function scamMeaningForLanguage(language = "en", evidenceItems = []) {
+  const hasOfficial = evidenceItems.some((item) => sourceReliability(item) >= 72)
+  const localized = {
+    hi: hasOfficial
+      ? "यह viral/AI बैनर जैसा दावा किसी भी आधिकारिक सरकारी वेबसाइट पर पुष्टि नहीं होता। मिले आधिकारिक स्रोत बताते हैं कि सरकार की मदद सीमित योजनाओं/targeted groups के लिए होती है, हर नवजात या हर नागरिक को 50 वर्ष तक मुफ्त पैसा नहीं मिलता। इसे झूठा/धोखाधड़ी मानें।"
+      : "यह दावा आधिकारिक वेबसाइटों पर नहीं मिला। ऐसे universal money/नवजात बैनर अक्सर AI या scam graphics होते हैं। इसे गलत और असुरक्षित मानें।",
+    gu: hasOfficial
+      ? "આ viral/AI બેનર જેવો દાવો કોઈ સત્તાવાર સરકારી વેબસાઇટ પર પુષ્ટિ થતો નથી. મળેલા સત્તાવાર સ્ત્રોતો બતાવે છે કે સહાય મર્યાદિત યોજનાઓ/લક્ષિત જૂથો માટે છે, દરેક નવજાત અથવા નાગરિકને 50 વર્ષ સુધી મફત પૈસા મળતા નથી. આને ખોટું/સ્કેમ માનો."
+      : "આ દાવો સત્તાવાર વેબસાઇટો પર મળ્યો નથી. આવા universal money/નવજાત બેનર ઘણી વાર AI અથવા scam graphics હોય છે. આને ખોટું અને અસુરક્ષિત માનો.",
+  }
+  if (localized[language]) return localized[language]
+  return hasOfficial
+    ? "This viral or AI-style banner claim is not confirmed on any official government website. Retrieved official sources describe limited/targeted schemes, not free money for every newborn or every citizen until age 50. Treat it as false and unsafe."
+    : "This claim was not found on official websites. Universal newborn/citizen money banners are commonly AI-generated or scam graphics. Treat it as false and unsafe."
+}
+
+function applyFraudGuardrails(claimText, evidenceItems, analysis, language = "en", inputType = "text") {
+  const scam = detectScamPatterns(claimText)
+  const officialConfirmed = officialSourcesConfirmExactClaim(claimText, evidenceItems)
+  const contradicted = evidenceContradictsUniversalClaim(claimText, evidenceItems)
+  const imageRisk = inputType === "image" && scam.isLikelyScam && !officialConfirmed
+  const shouldForceFalse = (scam.isLikelyScam && !officialConfirmed) || contradicted || imageRisk
+
+  if (!shouldForceFalse) return analysis
+  return {
+    ...analysis,
+    verdict: "FALSE",
+    trustScore: Math.min(analysis.trustScore || 10, 10),
+    confidence: Math.min(analysis.confidence || 10, 10),
+    meaning: scamMeaningForLanguage(language, evidenceItems),
+    recommendation: recommendationForVerdict("FALSE", language),
+    modelUsed: `${analysis.modelUsed || "gemini"}+fraud-guardrails`,
+  }
+}
+
 function aggregateMeaning(claimResults = [], verdict = "UNVERIFIED", primary = {}, language = "en") {
-  if (claimResults.length <= 1) return primary.meaning
-  const highestRisk = claimResults.find((item) => item.verdict === verdict)?.meaning || primary.meaning
+  const safeMeaning = (item) => {
+    const value = item?.meaning || ""
+    if (!value || looksMostlyEnglish(value, language)) return fallbackMeaningForVerdict(item?.verdict || verdict, language)
+    return value
+  }
+  if (claimResults.length <= 1) {
+    return safeMeaning(primary) || fallbackMeaningForVerdict(verdict, language)
+  }
+  const label = verdictLabelForLanguage(verdict, language)
   if (language === "hi") {
-    return `${claimResults.length} जांच योग्य दावे निकाले गए। सबसे ज्यादा risk वाला दावा ${verdict.toLowerCase()} है: ${highestRisk}`
+    return `${claimResults.length} जांच योग्य दावे मिले। सबसे गंभीर निष्कर्ष: ${label}। ${fallbackMeaningForVerdict(verdict, language)}`
   }
   if (language === "gu") {
-    return `${claimResults.length} check કરી શકાય તેવા દાવા કાઢવામાં આવ્યા. સૌથી વધુ risk વાળો દાવો ${verdict.toLowerCase()} છે: ${highestRisk}`
+    return `${claimResults.length} ચકાસી શકાય તેવા દાવા મળ્યા. સૌથી ગંભીર નિષ્કર્ષ: ${label}. ${fallbackMeaningForVerdict(verdict, language)}`
   }
-  return `${claimResults.length} checkable claims were extracted. The highest-risk claim is ${verdict.toLowerCase()}: ${highestRisk}`
+  const highestRisk = claimResults.find((item) => item.verdict === verdict) || primary
+  return `${claimResults.length} checkable claims were extracted. The highest-risk claim is ${verdict.toLowerCase()}: ${safeMeaning(highestRisk)}`
 }
 
 
@@ -732,6 +831,19 @@ function fallbackAnalysis(claim, evidenceItems, searchErrors = [], language = "e
       recommendation: recommendationForVerdict("FALSE", language),
       modelUsed: "fallback-evidence-rules",
       confidence: 68,
+      searchErrors,
+    }
+  }
+
+  const scam = detectScamPatterns(claim)
+  if (scam.isLikelyScam && !officialSourcesConfirmExactClaim(claim, evidenceItems)) {
+    return {
+      verdict: "FALSE",
+      trustScore: 12,
+      meaning: scamMeaningForLanguage(language, evidenceItems),
+      recommendation: recommendationForVerdict("FALSE", language),
+      modelUsed: "fallback-scam-rules",
+      confidence: 12,
       searchErrors,
     }
   }
@@ -761,7 +873,7 @@ function fallbackAnalysis(claim, evidenceItems, searchErrors = [], language = "e
 function buildFactCheckPrompt(claim, evidenceItems, language = "en") {
   const evidenceText = evidenceItems
     .map((item, index) => `[${index + 1}] Source: ${sanitizePromptText(item.source)}
-Trust level: ${sourceTrustLabel(item)}
+Trust level: ${sourceTrustLabel(item, language)}
 Reliability score: ${sourceReliability(item)}
 Semantic similarity: ${Number(item.similarity || 0).toFixed(3)}
 Evidence: ${sanitizePromptText(item.explanation)}
@@ -778,7 +890,10 @@ Security rules:
 - Prefer official/primary sources and verified fact-check sources over social media or unknown blogs.
 - Give a direct user decision. Do not tell the user to manually check official websites; Factra has already retrieved evidence for them.
 - If evidence is weak, unrelated, generic, social-only, or does not directly address the exact claim, choose UNVERIFIED.
-- Write explanation and recommendation in ${outputLanguageName(language)}.
+- If the claim promises free/universal money, newborn payments, or benefits for every citizen but official evidence only mentions limited/targeted schemes, choose FALSE (not MISLEADING).
+- Viral banners, screenshots, or AI-style graphics making universal government payout claims are usually FALSE unless official evidence directly confirms the exact same scheme.
+- Write the explanation, recommendation, and all user-facing report text entirely in ${outputLanguageName(language)}.
+- Do not leave mixed English phrases in the output unless they are proper nouns, URLs, verdict codes, or technical model names.
 
 Claim:
 ${sanitizePromptText(claim)}
@@ -871,11 +986,12 @@ async function analyzeWithGemini(claim, evidenceItems, language = "en") {
   })
 
   const parsed = parseJsonFromText(response.text)
+  const verdict = normalizeVerdict(parsed.verdict)
   return {
-    verdict: normalizeVerdict(parsed.verdict),
+    verdict,
     trustScore: clampScore(parsed.confidenceScore, 50),
-    meaning: String(parsed.explanation || "Gemini returned a result without an explanation."),
-    recommendation: String(parsed.recommendation || "Review the evidence before sharing."),
+    meaning: String(parsed.explanation || fallbackMeaningForVerdict(verdict, language)),
+    recommendation: recommendationForVerdict(verdict, language),
     modelUsed: env("GEMINI_MODEL") || "gemini-2.5-flash",
     confidence: clampScore(parsed.confidenceScore, 50),
   }
@@ -906,11 +1022,29 @@ function formatTimeRange(start, seconds = 5) {
   return `${secondsToTimestamp(start)}-${secondsToTimestamp(start + seconds)}`
 }
 
-function extractTranscriptRows(transcript = "") {
+function transcriptHeaderPrefixes(language = "en") {
+  return [
+    "Speech transcript:",
+    "Speech/context transcript:",
+    "Visible text / OCR:",
+    read(language, "video_speech_transcript_prefix"),
+    read(language, "video_context_transcript_prefix"),
+    read(language, "video_visible_text_prefix"),
+  ].map((value) => String(value || "").trim()).filter(Boolean)
+}
+
+function stripTranscriptHeaders(transcript = "", language = "en") {
+  let output = String(transcript || "")
+  for (const prefix of transcriptHeaderPrefixes(language)) {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    output = output.replace(new RegExp(`(^|\\n)\\s*${escaped}\\s*:?(?=\\s|\\n|$)`, "gi"), "$1")
+  }
+  return output
+}
+
+function extractTranscriptRows(transcript = "", language = "en") {
   const rows = []
-  const lines = String(transcript || "")
-    .replace(/\bSpeech(?:\/context)? transcript:\s*/gi, "\n")
-    .replace(/\bVisible text\s*\/\s*OCR:\s*/gi, "\n")
+  const lines = stripTranscriptHeaders(transcript, language)
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
@@ -927,8 +1061,8 @@ function extractTranscriptRows(transcript = "") {
   return rows.filter((row) => row.text)
 }
 
-function buildFiveSecondVideoSegments(transcript = "", segmentSeconds = 5, maxSegments = 12) {
-  const rows = extractTranscriptRows(transcript)
+function buildFiveSecondVideoSegments(transcript = "", segmentSeconds = 5, maxSegments = 12, language = "en") {
+  const rows = extractTranscriptRows(transcript, language)
   if (!rows.length) return []
 
   const hasRealTimestamps = rows.some((row) => row.seconds !== null)
@@ -962,6 +1096,7 @@ async function analyzeSingleClaim(claimText, payload = {}) {
   const { evidenceItems, searchErrors } = await collectEvidence(claimText, searchQuery, {
     fast: isVideo,
     skipVectorDb: isVideo && env("VIDEO_USE_VECTOR_DB") !== "1",
+    language: payload.language || "en",
   })
   let analysis
   try {
@@ -969,7 +1104,8 @@ async function analyzeSingleClaim(claimText, payload = {}) {
   } catch (error) {
     analysis = fallbackAnalysis(claimText, evidenceItems, [...searchErrors, userSafeServiceMessage(error)], payload.language || "en")
   }
-  if (analysis.verdict !== "UNVERIFIED" && (!hasStrongEvidence(evidenceItems) || !/(?:\[\d+\]|evidence\s+\d+)/i.test(analysis.meaning))) {
+  analysis = applyFraudGuardrails(claimText, evidenceItems, analysis, payload.language || "en", payload.type || "text")
+  if (analysis.verdict !== "UNVERIFIED" && (!hasStrongEvidence(evidenceItems) || !/(?:\[\d+\]|evidence\s+\d+|सबूत\s+\[\d+\])/i.test(analysis.meaning))) {
     analysis = {
       ...analysis,
       verdict: "UNVERIFIED",
@@ -980,6 +1116,11 @@ async function analyzeSingleClaim(claimText, payload = {}) {
     }
   }
   analysis.recommendation = recommendationForVerdict(analysis.verdict, payload.language || "en")
+  if (looksMostlyEnglish(analysis.meaning, payload.language || "en")) {
+    analysis.meaning = analysis.verdict === "FALSE" && detectScamPatterns(claimText).isLikelyScam
+      ? scamMeaningForLanguage(payload.language || "en", evidenceItems)
+      : fallbackMeaningForVerdict(analysis.verdict, payload.language || "en")
+  }
 
   const trustBreakdown = buildTrustBreakdown(claimText, evidenceItems, analysis.confidence || analysis.trustScore)
   if (analysis.modelUsed === "fallback-rules") {
@@ -995,7 +1136,7 @@ async function analyzeSingleClaim(claimText, payload = {}) {
     trustScore: verdictBreakdown.overall,
     meaning: analysis.meaning,
     recommendation: analysis.recommendation,
-    evidence: evidenceItems.map((item) => ({ ...item, trustLevel: sourceTrustLabel(item), sourceReliability: sourceReliability(item) })),
+    evidence: evidenceItems.map((item) => ({ ...item, trustLevel: sourceTrustLabel(item, payload.language || "en"), sourceReliability: sourceReliability(item) })),
     searchQuery,
     modelUsed: analysis.modelUsed,
     searchErrors: analysis.searchErrors || searchErrors,
@@ -1008,8 +1149,9 @@ function aggregateVerdict(claimResults = []) {
   const hasTrue = verdicts.includes("TRUE")
   const hasFalse = verdicts.includes("FALSE") || verdicts.includes("RISKY")
   const hasMixed = verdicts.includes("MISLEADING") || verdicts.includes("MANIPULATIVE")
-  if ((hasTrue && hasFalse) || hasMixed) return "MISLEADING"
   if (hasFalse) return "FALSE"
+  if (hasTrue && hasMixed) return "MISLEADING"
+  if (hasMixed) return "MISLEADING"
   if (hasTrue && verdicts.every((verdict) => verdict === "TRUE")) return "TRUE"
   if (hasTrue) return "MISLEADING"
   return "UNVERIFIED"
@@ -1050,6 +1192,197 @@ function buildClaimTimeline(claims = [], claimResults = []) {
   })
 }
 
+function mergeTranslatedValue(originalValue, translatedValue) {
+  if (Array.isArray(originalValue) && Array.isArray(translatedValue)) {
+    return originalValue.map((item, index) => mergeTranslatedValue(item, translatedValue[index]))
+  }
+  if (originalValue && typeof originalValue === "object" && translatedValue && typeof translatedValue === "object") {
+    const output = { ...originalValue }
+    for (const [key, value] of Object.entries(translatedValue)) {
+      if (output[key] === undefined) continue
+      output[key] = mergeTranslatedValue(output[key], value)
+    }
+    return output
+  }
+  return typeof translatedValue === "string" && translatedValue.trim() ? translatedValue : originalValue
+}
+
+async function translateVerificationResult(result, language = "en") {
+  const sourceLanguage = result?.language || "en"
+  if (sourceLanguage === language) {
+    return finalizeLocalizedReport({ ...result, language }, language)
+  }
+  const key = env("GEMINI_API_KEY") || env("GOOGLE_API_KEY")
+  let output = { ...result, language: sourceLanguage }
+  if (!key) return finalizeLocalizedReport(output, language)
+
+  const payload = {
+    claim: result.claim,
+    meaning: result.meaning,
+    recommendation: result.recommendation,
+    transcript: result.transcript,
+    retrieval: {
+      engine: result.retrieval?.engine,
+      vectorIndex: result.retrieval?.vectorIndex,
+    },
+    evidence: Array.isArray(result.evidence)
+      ? result.evidence.map((item) => ({
+        source: item.source,
+        explanation: item.explanation,
+        link: item.link,
+        trusted: item.trusted,
+        trustLevel: item.trustLevel,
+      }))
+      : [],
+    claims: Array.isArray(result.claims)
+      ? result.claims.map((item) => ({
+        text: item.text,
+        meaning: item.meaning,
+        recommendation: item.recommendation,
+        verdict: item.verdict,
+        trustScore: item.trustScore,
+      }))
+      : [],
+    timeline: Array.isArray(result.timeline)
+      ? result.timeline.map((item) => ({
+        time: item.time,
+        claim: item.claim,
+        meaning: item.meaning,
+        result: item.result,
+        trustScore: item.trustScore,
+        evidence: Array.isArray(item.evidence)
+          ? item.evidence.map((entry) => ({
+            source: entry.source,
+            explanation: entry.explanation,
+            link: entry.link,
+            trustLevel: entry.trustLevel,
+          }))
+          : undefined,
+      }))
+      : undefined,
+    linkContext: result.linkContext?.notes ? { notes: result.linkContext.notes } : undefined,
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: key })
+    const response = await ai.models.generateContent({
+      model: env("GEMINI_MODEL") || "gemini-2.5-flash",
+      contents: `You are a professional translator for Factra AI fact-check reports.
+
+Translate EVERY human-readable field in the JSON below into ${outputLanguageName(language)}.
+Rules:
+- Output must read naturally in ${outputLanguageName(language)} only.
+- Do not leave English sentences, mixed Hinglish, or English labels.
+- Keep URLs, timestamps, verdict codes (TRUE/FALSE/MISLEADING/UNVERIFIED), numbers, booleans, and model names unchanged.
+- Translate evidence explanations fully even if the original source title is English.
+- Preserve the exact JSON structure.
+Return only valid JSON.
+
+JSON:
+${JSON.stringify(payload)}`,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0,
+      },
+    })
+    const translated = parseJsonFromText(response.text)
+    output = mergeTranslatedValue(result, translated)
+  } catch (error) {
+    console.warn(`Report translation failed: ${error.message}`)
+  }
+  return finalizeLocalizedReport(output, language)
+}
+
+export async function relocalizeVerificationResult(result, language = "en") {
+  if (!result) return result
+  const localized = await translateVerificationResult(result, language)
+  return { ...localized, language }
+}
+
+function localizeEvidenceSource(source = "", language = "en") {
+  return String(source || "")
+    .replace(/^Official source:\s*/i, `${read(language, "evidence_prefix_official")} `)
+    .replace(/^Fact-check source:\s*/i, `${read(language, "evidence_prefix_factcheck")} `)
+    .replace(/^No strong live evidence found$/i, read(language, "evidence_none_title"))
+    .replace(/^No checkable claim extracted$/i, read(language, "no_checkable_claim_source"))
+}
+
+function looksMostlyEnglish(text = "", language = "en") {
+  return !textMatchesLanguage(text, language)
+}
+
+function textMatchesLanguage(text = "", language = "en") {
+  if (!String(text || "").trim()) return true
+  const value = String(text)
+  const latin = (value.match(/[A-Za-z]/g) || []).length
+  const devanagari = (value.match(/[\u0900-\u097F]/g) || []).length
+  const gujarati = (value.match(/[\u0A80-\u0AFF]/g) || []).length
+  if (language === "en") return latin >= Math.max(devanagari, gujarati, 1)
+  if (language === "hi") return devanagari >= latin * 0.75 && devanagari >= gujarati
+  if (language === "gu") return gujarati >= latin * 0.75 && gujarati >= devanagari
+  return true
+}
+
+function finalizeLocalizedReport(result, language = "en") {
+  const localizedClaims = Array.isArray(result.claims)
+    ? result.claims.map((item) => ({
+      ...item,
+      recommendation: recommendationForVerdict(item.verdict, language),
+      meaning: textMatchesLanguage(item.meaning, language)
+        ? (item.meaning || fallbackMeaningForVerdict(item.verdict, language))
+        : (item.verdict === "FALSE" ? scamMeaningForLanguage(language, item.evidence || result.evidence || []) : fallbackMeaningForVerdict(item.verdict, language)),
+      evidence: Array.isArray(item.evidence)
+        ? item.evidence.map((entry) => ({
+          ...entry,
+          source: localizeEvidenceSource(entry.source, language),
+          trustLevel: sourceTrustLabel(entry, language),
+        }))
+        : item.evidence,
+    }))
+    : result.claims
+
+  const localized = {
+    ...result,
+    language,
+    recommendation: recommendationForVerdict(result.verdict, language),
+    claims: localizedClaims,
+    retrieval: result.retrieval
+      ? {
+        ...result.retrieval,
+        engine: read(language, result.retrieval.engineKey || "retrieval_engine"),
+        vectorIndex: read(language, result.retrieval.vectorIndexKey || "retrieval_vector_index"),
+      }
+      : result.retrieval,
+    evidence: Array.isArray(result.evidence)
+      ? result.evidence.map((item) => ({
+        ...item,
+        source: localizeEvidenceSource(item.source, language),
+        trustLevel: sourceTrustLabel(item, language),
+      }))
+      : result.evidence,
+    timeline: Array.isArray(result.timeline)
+      ? result.timeline.map((item) => ({
+        ...item,
+        meaning: item.meaning && textMatchesLanguage(item.meaning, language) ? item.meaning : undefined,
+        evidence: Array.isArray(item.evidence)
+          ? item.evidence.map((entry) => ({
+            ...entry,
+            source: localizeEvidenceSource(entry.source, language),
+            trustLevel: sourceTrustLabel(entry, language),
+          }))
+          : item.evidence,
+      }))
+      : result.timeline,
+  }
+  localized.meaning = aggregateMeaning(localizedClaims || [], localized.verdict, localized, language)
+  if (!textMatchesLanguage(localized.meaning, language)) {
+    localized.meaning = localized.verdict === "FALSE"
+      ? scamMeaningForLanguage(language, localized.evidence || [])
+      : fallbackMeaningForVerdict(localized.verdict, language)
+  }
+  return localized
+}
+
 export async function createVerificationResult(payload = {}) {
   const inputType = ["text", "link", "image", "video"].includes(payload.type) ? payload.type : "text"
   const language = translations[payload.language] ? payload.language : "en"
@@ -1059,8 +1392,8 @@ export async function createVerificationResult(payload = {}) {
   if (inputType === "link" && payload.content?.link) {
     linkContext = await extractLinkContext({ url: payload.content.link, kind: "link" })
     if (!linkContext.combinedText) {
-      const note = linkContext.notes || "No specific factual claim could be extracted from this link."
-      return {
+      const note = linkContext.notes || read(language, "no_checkable_claim")
+      return translateVerificationResult({
         inputType,
         language,
         verdict: "UNVERIFIED",
@@ -1077,12 +1410,12 @@ export async function createVerificationResult(payload = {}) {
         claims: [
           {
             id: 1,
-            text: "No checkable claim could be extracted from this link.",
+            text: read(language, "no_checkable_claim"),
             verdict: "UNVERIFIED",
             trustScore: 20,
             meaning: note,
             recommendation: noCheckableClaimRecommendation(language),
-            evidence: [evidence("No checkable claim extracted", note, payload.content.link)],
+            evidence: [evidence(read(language, "no_checkable_claim_source"), note, payload.content.link)],
             searchQuery: "",
             trustBreakdown: {
               evidenceQuality: 20,
@@ -1095,25 +1428,27 @@ export async function createVerificationResult(payload = {}) {
           },
         ],
         meaning: note,
-        evidence: [evidence("No checkable claim extracted", note, payload.content.link)],
+        evidence: [evidence(read(language, "no_checkable_claim_source"), note, payload.content.link)],
         recommendation: noCheckableClaimRecommendation(language),
         transcript: "",
         linkContext,
         retrieval: {
-          engine: "Link metadata + public search snippets",
+          engine: read(language, "retrieval_engine_link"),
+          engineKey: "retrieval_engine_link",
           query: "",
-          vectorIndex: "Skipped because no checkable claim was extracted",
+          vectorIndex: read(language, "retrieval_vector_skipped"),
+          vectorIndexKey: "retrieval_vector_skipped",
           model: linkContext.model || "metadata",
           searchErrors: [],
         },
-      }
+      }, language)
     }
     rawClaim = linkContext.combinedText
   }
   const segmentSeconds = Number(env("VIDEO_SEGMENT_SECONDS") || 5)
   const maxVideoSegments = Number(env("VIDEO_MAX_SEGMENTS") || env("VIDEO_MAX_CLAIMS") || 12)
   const videoSegments = inputType === "video"
-    ? buildFiveSecondVideoSegments(payload.content?.transcript || rawClaim, segmentSeconds, maxVideoSegments)
+    ? buildFiveSecondVideoSegments(payload.content?.transcript || rawClaim, segmentSeconds, maxVideoSegments, language)
     : []
   const maxClaims = inputType === "video" ? maxVideoSegments : 5
   const extractedClaims = inputType === "video" && videoSegments.length
@@ -1140,7 +1475,7 @@ export async function createVerificationResult(payload = {}) {
   const evidenceItems = uniqueEvidence(claimResults)
   const searchErrors = claimResults.flatMap((item) => item.searchErrors || [])
 
-  return {
+  const result = {
     inputType,
     language,
     verdict,
@@ -1165,13 +1500,16 @@ export async function createVerificationResult(payload = {}) {
     linkContext,
     timeline: inputType === "video" ? buildClaimTimeline(claims, claimResults) : undefined,
     retrieval: {
-      engine: "FAISS vector DB + Serper + NewsAPI + NewsData + semantic reranking",
+      engine: read(language, "retrieval_engine"),
+      engineKey: "retrieval_engine",
       query: claimResults.map((item) => item.searchQuery).join(" | "),
-      vectorIndex: "Persistent FAISS index using sentence-transformer embeddings",
+      vectorIndex: read(language, "retrieval_vector_index"),
+      vectorIndexKey: "retrieval_vector_index",
       model: [...new Set(claimResults.map((item) => item.modelUsed))].join(" + "),
       searchErrors,
     },
   }
+  return translateVerificationResult(result, language)
 }
 function secondsToTimestamp(value = 0) {
   const total = Math.max(0, Math.floor(Number(value) || 0))
@@ -1268,6 +1606,50 @@ async function extractVideoTextWithWhisper({ fileName = "video", mimeType = "vid
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {})
   }
 }
+export async function extractImageTextWithGemini({ fileName = "image", mimeType = "image/png", data = "", language = "en" } = {}) {
+  if (!data) throw new Error("Image data is missing")
+  const key = env("GEMINI_API_KEY") || env("GOOGLE_API_KEY")
+  if (!key) throw new Error("Gemini API key is missing")
+
+  const ai = new GoogleGenAI({ apiKey: key })
+  const response = await ai.models.generateContent({
+    model: env("GEMINI_MODEL") || "gemini-2.5-flash",
+    contents: [
+      {
+        text: `Read every word visible in this image for fact-checking.
+
+Return only JSON with keys:
+- text: all readable text exactly as shown, preserving line breaks and Hindi/Gujarati/English characters
+- confidence: 0-100 OCR confidence
+- notes: one short note in ${outputLanguageName(language)}
+
+If the image has no readable text, set text to an empty string and explain in notes.`,
+      },
+      {
+        inlineData: {
+          mimeType: mimeType || "image/png",
+          data,
+        },
+      },
+    ],
+    config: {
+      responseMimeType: "application/json",
+      temperature: 0,
+    },
+  })
+
+  const parsed = parseJsonFromText(response.text)
+  const text = cleanExtractedClaimText(String(parsed.text || "").replace(/\r/g, ""))
+  return {
+    fileName,
+    text,
+    confidence: clampScore(parsed.confidence, text ? 88 : 0),
+    notes: String(parsed.notes || "").trim(),
+    model: env("GEMINI_MODEL") || "gemini-2.5-flash",
+    engine: "gemini-vision-ocr",
+  }
+}
+
 export async function extractVideoTextWithGemini({ fileName = "video", mimeType = "video/mp4", data = "" } = {}) {
   if (!data) throw new Error("Video data is missing")
   let whisperError = ""

@@ -3,7 +3,7 @@ import { useApp } from "../context/AppContext.jsx"
 
 export default function EvidenceCard({ source, explanation, link, trustLevel, sourceReliability, retrieval }) {
   const { t } = useApp()
-  const isOfficial = trustLevel === "official/primary source" || retrieval === "official-search" || Number(sourceReliability || 0) >= 90
+  const isOfficial = retrieval === "official-search" || Number(sourceReliability || 0) >= 90
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background p-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">

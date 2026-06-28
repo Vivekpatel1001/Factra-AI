@@ -8,7 +8,7 @@ import helmet from "helmet"
 import rateLimit from "express-rate-limit"
 import { z } from "zod"
 import next from "next"
-import { createVerificationResult, extractVideoLinkContext, extractVideoTextWithGemini } from "./services/verification.js"
+import { createVerificationResult, extractImageTextWithGemini, extractVideoLinkContext, extractVideoTextWithGemini, relocalizeVerificationResult } from "./services/verification.js"
 import {
   checkSupabaseConnection,
   createAuthUser as createSupabaseAuthUser,
@@ -149,7 +149,21 @@ const videoExtractSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["data"], message: "Video/audio file is too large. Maximum size is 24MB." })
   }
 })
-const videoLinkSchema = z.object({ url: linkSchema })
+const imageExtractSchema = z.object({
+  fileName: z.string().trim().min(1).max(180).default("image"),
+  mimeType: z.string().trim().min(1).max(80).refine((value) => /^image\//.test(value), "Unsupported image file type."),
+  data: z.string().min(1),
+  language: z.string().trim().min(2).max(8).default("en"),
+}).superRefine((value, ctx) => {
+  const approxBytes = Math.ceil(value.data.length * 0.75)
+  if (approxBytes > 8 * 1024 * 1024) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["data"], message: "Image file is too large. Maximum size is 8MB." })
+  }
+})
+const translateReportSchema = z.object({
+  language: z.string().trim().min(2).max(8).default("en"),
+  result: z.record(z.any()),
+})
 
 const validateBody = (schema) => (req, res, nextMiddleware) => {
   const parsed = schema.safeParse(req.body || {})
@@ -186,13 +200,15 @@ const getStoredUserByEmail = async (email) => {
     try {
       const supabaseUser = await findSupabaseUserByEmail(email)
       if (supabaseUser) {
-        return {
+        const user = {
           id: supabaseUser.id,
           name: supabaseUser.name,
           email: supabaseUser.email,
           passwordHash: supabaseUser.password_hash,
           createdAt: supabaseUser.created_at,
         }
+        users.set(email, user)
+        return user
       }
     } catch (error) {
       console.warn(`Supabase user lookup failed, using local fallback: ${error.message}`)
@@ -245,7 +261,14 @@ const requireAuth = async (req, res, nextMiddleware) => {
     sessions.delete(tokenHash)
     return json(res, 401, { error: "Session expired. Please log in again." })
   }
-  req.user = users.get(session.email)
+  let user = users.get(session.email)
+  if (!user) {
+    user = await getStoredUserByEmail(session.email)
+    if (user) users.set(session.email, user)
+  }
+  if (!user) return json(res, 401, { error: "Unauthorized" })
+  
+  req.user = user
   req.token = tokenHash
   return nextMiddleware()
 }
@@ -331,6 +354,9 @@ server.post("/api/auth/signup", authLimiter, validateBody(signupSchema), async (
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString(),
   }
+  
+  users.set(email, user) // Always cache locally
+
   if (isSupabaseConfigured()) {
     try {
       await insertSupabaseUser(user)
@@ -341,24 +367,25 @@ server.post("/api/auth/signup", authLimiter, validateBody(signupSchema), async (
       }
     } catch (error) {
       console.warn(`Supabase user insert failed, using local fallback: ${error.message}`)
-      users.set(email, user)
     }
-  } else users.set(email, user)
+  }
 
   const token = crypto.randomBytes(32).toString("base64url")
   const tokenHash = hashSessionToken(token)
   const expiresAt = sessionExpiry()
+  
+  sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt }) // Always cache locally
+  
   if (isSupabaseConfigured()) {
     try {
       await insertSupabaseSession(tokenHash, user, expiresAt)
     } catch (error) {
       console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
-      sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
     }
-  } else sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
+  }
   setSessionCookie(res, token)
   audit("signup_success", { userId: user.id, email })
-  return json(res, 201, { token: "cookie", user: publicUser(user) })
+  return json(res, 201, { token, user: publicUser(user) })
 })
 
 server.post("/api/auth/login", authLimiter, validateBody(authSchema), async (req, res) => {
@@ -370,21 +397,25 @@ server.post("/api/auth/login", authLimiter, validateBody(authSchema), async (req
     audit("login_failed", { email })
     return json(res, 401, { error: "Invalid email or password." })
   }
+  
+  users.set(email, user) // Always cache locally
 
   const token = crypto.randomBytes(32).toString("base64url")
   const tokenHash = hashSessionToken(token)
   const expiresAt = sessionExpiry()
+  
+  sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt }) // Always cache locally
+  
   if (isSupabaseConfigured()) {
     try {
       await insertSupabaseSession(tokenHash, user, expiresAt)
     } catch (error) {
       console.warn(`Supabase session insert failed, using local fallback: ${error.message}`)
-      sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
     }
-  } else sessions.set(tokenHash, { email, createdAt: new Date().toISOString(), expiresAt })
+  }
   setSessionCookie(res, token)
   audit("login_success", { userId: user.id, email })
-  return json(res, 200, { token: "cookie", user: publicUser(user) })
+  return json(res, 200, { token, user: publicUser(user) })
 })
 
 server.post("/api/auth/logout", requireAuth, async (req, res) => {
@@ -434,6 +465,18 @@ server.delete("/api/reports/:id", reportLimiter, requireAuth, async (req, res) =
 })
 
 
+
+server.post("/api/image/extract", videoLimiter, validateBody(imageExtractSchema), async (req, res) => {
+  const { fileName, mimeType, data, language } = req.validatedBody
+  try {
+    const extraction = await extractImageTextWithGemini({ fileName, mimeType, data, language })
+    audit("image_extracted", { mimeType, approxBytes: Math.ceil(data.length * 0.75) })
+    return json(res, 200, extraction)
+  } catch (error) {
+    audit("api_key_or_image_extract_failure", { path: req.path })
+    return json(res, 502, { error: publicErrorMessage(error, "Image text extraction failed.") })
+  }
+})
 
 server.post("/api/video/link-extract", videoLimiter, validateBody(videoLinkSchema), async (req, res) => {
   const { url } = req.validatedBody
@@ -485,6 +528,16 @@ server.post("/api/verify", verifyLimiter, validateBody(verifySchema), async (req
     console.error(`Verification failed: ${error.message}`)
     audit("verification_failed", { path: req.path })
     return json(res, 502, { error: publicErrorMessage(error, "Verification failed.") })
+  }
+})
+server.post("/api/translate-report", verifyLimiter, validateBody(translateReportSchema), async (req, res) => {
+  try {
+    const { result, language } = req.validatedBody
+    const localized = await relocalizeVerificationResult(result, language)
+    return json(res, 200, { result: localized })
+  } catch (error) {
+    console.error(`Report translation failed: ${error.message}`)
+    return json(res, 502, { error: publicErrorMessage(error, "Report translation failed.") })
   }
 })
 

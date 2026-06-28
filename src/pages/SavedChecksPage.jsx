@@ -9,7 +9,7 @@ import { getVerdict } from "../lib/verdicts.js"
 import { useApp } from "../context/AppContext.jsx"
 
 export default function SavedChecksPage() {
-  const { t, isAuthenticated } = useApp()
+  const { t, isAuthenticated, authLoading } = useApp()
   const navigate = useNavigate()
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
@@ -19,7 +19,7 @@ export default function SavedChecksPage() {
   useEffect(() => {
     let active = true
     async function loadReports() {
-      if (!isAuthenticated) {
+      if (authLoading || !isAuthenticated) {
         setLoading(false)
         return
       }
@@ -38,7 +38,7 @@ export default function SavedChecksPage() {
     return () => {
       active = false
     }
-  }, [isAuthenticated])
+  }, [authLoading, isAuthenticated])
 
   const handleDelete = async (reportId) => {
     setDeletingId(reportId)
@@ -51,6 +51,14 @@ export default function SavedChecksPage() {
     } finally {
       setDeletingId("")
     }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14">
+        <Card className="p-6 text-center text-muted-foreground">{t("saved_loading")}</Card>
+      </div>
+    )
   }
 
   if (!isAuthenticated) {

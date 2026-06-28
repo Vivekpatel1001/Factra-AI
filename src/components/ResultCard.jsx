@@ -8,7 +8,7 @@ import VideoTimeline from "./VideoTimeline.jsx"
 import { getVerdict } from "../lib/verdicts.js"
 import { useApp } from "../context/AppContext.jsx"
 
-export default function ResultCard({ result, onReset }) {
+export default function ResultCard({ result, onReset, localizing = false }) {
   const { t } = useApp()
   const v = getVerdict(result.verdict, t)
   const Icon = v.icon
@@ -125,6 +125,11 @@ export default function ResultCard({ result, onReset }) {
         </div>
 
         <div className="p-6 sm:p-8">
+          {localizing && (
+            <p className="mb-4 rounded-2xl bg-primary-soft px-4 py-3 text-sm font-semibold text-primary">
+              {t("report_localizing")}
+            </p>
+          )}
           <div className="rounded-2xl bg-muted px-4 py-3">
             <p className="text-sm font-semibold text-muted-foreground">{t("you_asked_check")}</p>
             <p className="mt-1 text-lg font-medium">{result.claim}</p>

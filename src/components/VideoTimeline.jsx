@@ -56,7 +56,7 @@ export default function VideoTimeline({ items = [] }) {
                 {item.evidence?.length > 0 && (
                   <div className="mt-3 flex flex-col gap-2">
                     {item.evidence.slice(0, 2).map((evidence) => {
-                      const isOfficial = evidence.trustLevel === "official/primary source" || evidence.retrieval === "official-search" || Number(evidence.sourceReliability || 0) >= 90
+                      const isOfficial = evidence.retrieval === "official-search" || Number(evidence.sourceReliability || 0) >= 90
                       return (
                       <a
                         key={evidence.link || evidence.source}
